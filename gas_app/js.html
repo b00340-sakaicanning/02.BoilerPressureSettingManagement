@@ -1,0 +1,1068 @@
+<script>
+  /* ボイラ圧力設定管理 — 画面の処理（js.html）
+     版: v0.7（2026/11/15。フェーズ8: ページ分け・表示の手直し・PC とタブレット）
+     仕様: docs/02 §3・§5、docs/04 第2部 §9、plan/05
+     ブラウザに保存するキー: localStorage 'boilerPressure.operatorId'、sessionStorage 'boilerPressure.adminToken'・'boilerPressure.historyFilter'・'boilerPressure.historyPage'
+     ブラウザ標準の alert / confirm / prompt は使わない */
+
+  var STORAGE = { OPERATOR: 'boilerPressure.operatorId', TOKEN: 'boilerPressure.adminToken', HISTORY_FILTER: 'boilerPressure.historyFilter', HISTORY_PAGE: 'boilerPressure.historyPage' };
+
+  /** 画面の文言（plan/05 §8） */
+  var MESSAGES = {
+    M01: '記録しました', M02: '修正しました', M03: '削除しました', M04: '元に戻しました',
+    M11: 'はじめに、あなたの名前を選んでください',
+    M12: '管理者モードにしました（30分）', M13: '管理者モードを終了しますか？', M14: '管理者モードの時間が切れました',
+    M15: '暗証番号が違います', M16: '続けて間違えたため、{n}分間は入れません',
+    M21: 'パターン{p}の基準は {m} MPa です。入力した値は基準と違います', M22: '未来の日時になっています。このまま登録しますか？',
+    M23: 'この内容で記録しますか？', M24: 'この記録を修正できるのは、アプリで登録した本人と管理者です',
+    M31: 'この記録を削除しますか？（あとで管理者が元に戻せます）',
+    M41: '混み合っています。少し待ってからもう一度お試しください',
+    M42: 'ほかの人が先に更新しました。画面を読み直してから、もう一度操作してください',
+    M43: 'この記録は見つかりません（削除された可能性があります）',
+    M44: 'この操作をする権限がありません',
+    M45: 'エラーが起きました。時間をおいてもう一度お試しください。続くときは管理者に連絡してください',
+    M46: '通信できませんでした。電波のよい場所でもう一度お試しください',
+    M51: 'まだ記録がありません', M52: '条件に合う記録はありません'
+  };
+  var ERROR_MESSAGES = { BUSY: 'M41', CONFLICT: 'M42', NOT_FOUND: 'M43', FORBIDDEN: 'M44', SYSTEM: 'M45' };
+
+  var TABS = [
+    { key: 'home', label: 'ホーム', icon: 'home' },
+    { key: 'input', label: '入力', icon: 'pencil' },
+    { key: 'history', label: '履歴', icon: 'clock' },
+    { key: 'patterns', label: 'パターン表', icon: 'table' }
+  ];
+
+  /** 画面の状態 */
+  var state = {
+    settings: {}, fuels: [], patterns: [], operators: [], products: [],
+    operatorId: '', token: null, isAdmin: false,
+    current: null, recent: [], tab: 'home',
+    history: { filter: {}, items: [], total: 0, page: 1, pageCount: 1, offset: 0, panelOpen: false, loaded: false }
+  };
+
+  // ------------------------------------------------------------------
+  // 小さな道具
+  // ------------------------------------------------------------------
+  function $(id) { return document.getElementById(id); }
+  function esc(v) {
+    return String(v === null || v === undefined ? '' : v).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmt2(n) { return n === null || n === undefined || n === '' ? '' : Number(n).toFixed(2); }
+  function msg(key, vars) {
+    var s = MESSAGES[key] || key;
+    Object.keys(vars || {}).forEach(function (k) { s = s.replace('{' + k + '}', vars[k]); });
+    return s;
+  }
+  function storageGet(store, key) { try { return window[store].getItem(key); } catch (e) { return null; } }
+  function storageSet(store, key, value) { try { if (value === null) window[store].removeItem(key); else window[store].setItem(key, value); } catch (e) { /* 保存できなくても動かす */ } }
+
+  var ICONS = {
+    home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+    pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
+    person: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+    warn: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3"/>'
+  };
+  function icon(name, cls) {
+    return '<svg class="icon ' + (cls || '') + '" viewBox="0 0 24 24" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
+  }
+
+  function fuelBadge(fuel) {
+    return '<span class="badge ' + (fuel === '重油' ? 'badge-oil' : 'badge-gas') + '">' + esc(fuel) + '</span>';
+  }
+  function diffBadge(r) { return r && r.masterDiff ? '<span class="badge badge-diff">' + icon('warn', 'icon-sm') + '基準と違う</span>' : ''; }
+  function findPattern(no) { return state.patterns.filter(function (p) { return p.pattern === Number(no); })[0] || null; }
+  function findOperator(id) { return state.operators.filter(function (o) { return o.operatorId === id; })[0] || null; }
+  /** 入力者の表示「記入称(氏名)」。氏名が空なら記入称だけ */
+  function operatorLabel(o) { return o ? o.shortName + (o.fullName ? '(' + o.fullName + ')' : '') : ''; }
+  /** 記録の設定者の表示。記録に残した記入称に、入力者マスタの氏名を添える（マスタに無ければ記入称だけ） */
+  function setterLabel(r) {
+    var op = r && r.setterId ? findOperator(r.setterId) : null;
+    var short = (r && r.setterName) || (op ? op.shortName : '');
+    if (!short) return '';
+    return op && op.fullName ? short + '(' + op.fullName + ')' : short;
+  }
+  function patternLabel(no) { return 'パターン' + no; }
+  /** 'yyyy/MM/dd HH:mm' → 今年なら 'MM/dd HH:mm' */
+  function shortDateTime(s) {
+    if (!s) return '';
+    var year = String(new Date().getFullYear());
+    return s.indexOf(year + '/') === 0 ? s.substring(5) : s;
+  }
+
+  // ------------------------------------------------------------------
+  // ローディング・トースト・モーダル
+  // ------------------------------------------------------------------
+  var loadingCount = 0;
+  function showLoading() { loadingCount++; $('loading-overlay').classList.add('is-visible'); }
+  function hideLoading() { loadingCount = Math.max(0, loadingCount - 1); if (!loadingCount) $('loading-overlay').classList.remove('is-visible'); }
+
+  function toast(text) {
+    var el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = text;
+    $('toast-area').appendChild(el);
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 3000);
+  }
+
+  /**
+   * モーダルを開く。opts: { title, html, sheet(下から出す), closable(既定 true), actions: [{ label, cls, onClick(close) }] }
+   * 閉じる関数を返す
+   */
+  function openModal(opts) {
+    var closable = opts.closable !== false;
+    var wrap = document.createElement('div');
+    wrap.className = 'modal' + (opts.sheet ? ' is-sheet' : '');
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.innerHTML =
+      '<div class="modal-box">' +
+        '<div class="modal-head"><h2 class="modal-title">' + esc(opts.title || '') + '</h2>' +
+          (closable ? '<button type="button" class="modal-close" data-close aria-label="閉じる">' + icon('close') + '</button>' : '') +
+        '</div>' +
+        '<div class="modal-body">' + (opts.html || '') + '</div>' +
+        ((opts.actions || []).length ? '<div class="modal-actions"></div>' : '') +
+      '</div>';
+    function close() { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); }
+    (opts.actions || []).forEach(function (a) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn ' + (a.cls || 'btn-secondary');
+      b.textContent = a.label;
+      b.addEventListener('click', function () { a.onClick ? a.onClick(close) : close(); });
+      wrap.querySelector('.modal-actions').appendChild(b);
+    });
+    if (closable) {
+      wrap.addEventListener('click', function (e) {
+        if (e.target === wrap || e.target.closest('[data-close]')) { close(); if (opts.onClose) opts.onClose(); }
+      });
+    }
+    $('modal-root').appendChild(wrap);
+    return close;
+  }
+
+  function showError(text) {
+    openModal({ title: 'お知らせ', html: '<p>' + esc(text) + '</p>', actions: [{ label: '閉じる', cls: 'btn-primary' }] });
+  }
+
+  // ------------------------------------------------------------------
+  // サーバーの呼び出し（docs/04 第2部 §9）
+  // ------------------------------------------------------------------
+  var NO_CTX = ['authenticateAdmin'];
+
+  function ctx() { return { operatorId: state.operatorId || '', token: state.token || null }; }
+
+  /**
+   * google.script.run を Promise に包む。ctx を先頭に足し、ローディングを出す（そのあいだ画面を押せないので二度押しを防ぐ）。
+   * エラーは画面に出し、{ handled: true, code } で reject する
+   */
+  function api(name) { return callServer(name, Array.prototype.slice.call(arguments, 1), {}); }
+
+  /**
+   * サーバーを呼ぶ本体。opts.silent: 画面に出さずに reject するエラーコードの配列。
+   * 管理者の権限が要る操作でトークンが無い・切れているとき（AUTH_REQUIRED need=admin）は、暗証番号のダイアログを出し、
+   * 入れたら同じ操作を1回だけやり直す（docs/04 第2部 §9）
+   */
+  function callServer(name, rawArgs, opts) {
+    var args = rawArgs.slice();
+    if (NO_CTX.indexOf(name) < 0) args.unshift(ctx());
+    return new Promise(function (resolve, reject) {
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function (res) {
+          hideLoading();
+          if (res && res.ok) { resolve(res.data); return; }
+          var err = (res && res.error) || { code: 'SYSTEM', message: MESSAGES.M45 };
+          if (err.code === 'AUTH_REQUIRED' && err.detail && err.detail.need === 'admin' && !opts.noRetry) {
+            clearAdmin(false);
+            openPinDialog().then(function () { return callServer(name, rawArgs, { noRetry: true, silent: opts.silent }); })
+              .then(resolve, function (e) { reject(e && e.handled ? e : { handled: true, code: err.code, error: err }); });
+            return;
+          }
+          if (!(opts.silent && opts.silent.indexOf(err.code) >= 0)) handleApiError(err);
+          reject({ handled: true, code: err.code, error: err });
+        })
+        .withFailureHandler(function (e) {
+          hideLoading();
+          showError(MESSAGES.M46);
+          reject({ handled: true, code: 'NETWORK', error: e });
+        })[name].apply(null, args);
+    });
+  }
+
+  function handleApiError(err) {
+    if (err.code === 'AUTH_REQUIRED' && err.detail && err.detail.need === 'operator') { openOperatorPicker(true); return; }
+    if (err.code === 'VALIDATION') return; // 入力欄ごとの表示は呼び出し元で行う
+    showError(ERROR_MESSAGES[err.code] ? MESSAGES[ERROR_MESSAGES[err.code]] : (err.message || MESSAGES.M45));
+  }
+
+  // ------------------------------------------------------------------
+  // ヘッダ・タブ
+  // ------------------------------------------------------------------
+  function renderHeader() {
+    $('app-title').textContent = state.settings.APP_TITLE || 'ボイラ圧力設定管理';
+    $('env-badge').hidden = state.settings.ENV !== '開発';
+    var op = findOperator(state.operatorId);
+    var chip = $('operator-chip');
+    chip.innerHTML = icon('person', 'icon-sm') + '<span>' + esc(op && op.active ? operatorLabel(op) : '名前を選ぶ') + '</span>';
+    chip.title = op && op.active ? operatorLabel(op) : '';
+    chip.classList.toggle('is-empty', !(op && op.active));
+    renderAdminChip();
+  }
+
+  function renderTabbar() {
+    TABS.forEach(function (t) {
+      var b = document.querySelector('.tab-btn[data-tab="' + t.key + '"]');
+      b.innerHTML = icon(t.icon) + '<span>' + esc(t.label) + '</span>';
+      b.classList.toggle('is-active', t.key === state.tab);
+      b.setAttribute('aria-current', t.key === state.tab ? 'page' : 'false');
+    });
+  }
+
+  function switchTab(key) {
+    if (!TABS.some(function (t) { return t.key === key; })) key = 'home';
+    state.tab = key;
+    document.querySelectorAll('.tab-panel').forEach(function (p) { p.hidden = p.getAttribute('data-tab') !== key; });
+    renderTabbar();
+    try { history.replaceState(null, '', '#tab=' + key); } catch (e) { /* GAS の枠の中では使えないことがある */ }
+    renderTab(key);
+    window.scrollTo(0, 0);
+  }
+
+  function renderTab(key) {
+    if (key === 'home') renderHome();
+    else if (key === 'patterns') renderPatterns();
+    else if (key === 'input') { initForm(); renderInput(); }
+    else if (key === 'history') { renderHistory(); loadHistory(); }
+  }
+
+  function renderPlaceholder(panelId, title) {
+    $(panelId).innerHTML = '<div class="card empty"><p><b>' + esc(title) + '</b></p><p>この画面は準備中です。</p></div>';
+  }
+
+  // ------------------------------------------------------------------
+  // 操作者を選ぶ（plan/05 §2）
+  // ------------------------------------------------------------------
+  function openOperatorPicker(force) {
+    if (document.querySelector('.modal[data-kind="operator"]')) return;
+    var ops = state.operators.filter(function (o) { return o.active; });
+    var html = '<p class="muted" style="margin:0 0 12px">' + esc(MESSAGES.M11) + '</p><div class="operator-list">' +
+      ops.map(function (o) {
+        return '<button type="button" class="operator-btn' + (o.operatorId === state.operatorId ? ' is-selected' : '') + '" data-op="' + esc(o.operatorId) + '">' +
+          '<span class="short">' + esc(o.shortName) + '</span><span class="full">' + esc(o.fullName || '') + '</span></button>';
+      }).join('') + '</div>';
+    var close = openModal({ title: 'あなたの名前', html: html, closable: !force });
+    var modal = $('modal-root').lastChild;
+    modal.setAttribute('data-kind', 'operator');
+    modal.querySelectorAll('.operator-btn').forEach(function (b) {
+      b.addEventListener('click', function () { selectOperator(b.getAttribute('data-op'), close); });
+    });
+  }
+
+  function selectOperator(operatorId, close) {
+    state.operatorId = operatorId;
+    storageSet('localStorage', STORAGE.OPERATOR, operatorId);
+    // 操作者を変えたら管理者モードは解く（docs/04 第1部 §3.3）
+    state.token = null; state.isAdmin = false; state.adminExpiresAt = null;
+    storageSet('sessionStorage', STORAGE.TOKEN, null);
+    close();
+    renderHeader();
+    api('getHome').then(function (d) {
+      state.current = d.current; state.recent = d.recent;
+      renderTab(state.tab);
+    }, function () { /* エラーは表示済み */ });
+  }
+
+  // ------------------------------------------------------------------
+  // ホーム（S-01）
+  // ------------------------------------------------------------------
+  function renderHome() {
+    var c = state.current;
+    var html = '';
+    if (!c) {
+      html += '<div class="card current-card"><div class="card-label">今の設定</div><p class="empty">' + esc(MESSAGES.M51) + '</p></div>';
+    } else {
+      html += '<div class="card current-card" id="current-card">' +
+        '<div class="card-label">今の設定</div>' +
+        '<div class="current-row"><span class="current-pattern">パターン ' + esc(c.pattern) + '</span>' + fuelBadge(c.fuel) + '</div>' +
+        '<div class="current-pressure num">' + esc(fmt2(c.pressure)) + '<span class="unit">MPa</span></div>' +
+        (c.masterDiff ? '<div style="margin-bottom:8px">' + diffBadge(c) + '</div>' : '') +
+        '<div class="meta"><span class="num">' + esc(c.changedAt) + '</span><span>設定者 <b>' + esc(setterLabel(c) || '—') + '</b></span>' +
+        (c.product ? '<span>品種 <b>' + esc(c.product) + '</b></span>' : '') + '</div>' +
+      '</div>';
+    }
+    html += '<button type="button" class="btn btn-primary btn-block mt-16" id="btn-go-input">' + icon('pencil') + '設定を変更して記録する</button>';
+    html = '<div class="home-grid"><div class="home-main">' + html + '</div><div class="home-side">';
+    html += '<div class="section-title"><span>直近の記録</span></div>';
+    if (!state.recent.length) html += '<div class="card empty">' + esc(MESSAGES.M51) + '</div>';
+    else html += '<div class="record-list">' + state.recent.map(recordCardHtml).join('') + '</div>';
+    html += '<button type="button" class="btn btn-secondary btn-block mt-16" id="btn-go-history">履歴をすべて見る</button>';
+    html += '</div></div>';
+    $('panel-home').innerHTML = html;
+    $('btn-go-input').addEventListener('click', function () { switchTab('input'); });
+    $('btn-go-history').addEventListener('click', function () { switchTab('history'); });
+  }
+
+  /** 記録の一覧のカード（ホームの直近・履歴で共通）。
+      PC の履歴では、同じ HTML を CSS で表の行にする（日時・バッジ・圧力・設定者・品種・備考の6つが列になる） */
+  function recordCardHtml(r) {
+    return '<div class="record-card' + (r.deleted ? ' is-deleted' : '') + '" data-record="' + esc(r.recordId) + '" role="button" tabindex="0">' +
+      '<div class="record-line1"><span class="record-when num">' + esc(shortDateTime(r.changedAt)) + '</span>' +
+        '<span class="record-badges">' + (r.deleted ? '<span class="badge badge-deleted">削除済み</span>' : '') +
+        '<span class="badge badge-pattern">' + esc(patternLabel(r.pattern)) + '</span>' + fuelBadge(r.fuel) + '</span>' +
+        '<span class="record-pressure num">' + esc(fmt2(r.pressure)) + (r.masterDiff ? icon('warn', 'icon-sm') : '') + '</span>' +
+      '</div>' +
+      '<div class="record-line2"><span class="record-setter">' + esc(setterLabel(r) || '設定者なし') + '</span>' +
+        '<span class="record-product">' + esc(r.product || '') + '</span><span class="record-note">' + esc(r.note || '') + '</span></div>' +
+    '</div>';
+  }
+
+  // ------------------------------------------------------------------
+  // パターン表（S-05）
+  // ------------------------------------------------------------------
+  function renderPatterns() {
+    var currentNo = state.current ? state.current.pattern : null;
+    var list = state.patterns.filter(function (p) { return p.active; });
+    var html = '<div class="section-title" style="margin-top:0"><span>基準パターン表</span></div>';
+    if (!list.length) html += '<div class="card empty">パターンがありません</div>';
+    html += '<div class="pattern-grid">' + list.map(function (p) {
+      var isCur = p.pattern === currentNo;
+      return '<div class="card pattern-card' + (isCur ? ' is-current' : '') + '">' +
+        '<div class="pattern-no">' + esc(p.pattern) + '</div>' +
+        '<div class="pattern-head"><span class="pattern-main num">' + esc(fmt2(p.mainPressure)) + '<span class="unit">MPa</span></span>' +
+          '<span class="pattern-sub num">サブ ' + esc(fmt2(p.subPressure)) + '</span>' + (isCur ? '<span class="badge badge-current">今の設定</span>' : '') + '</div>' +
+        '<div class="pattern-products">' + (p.products ? esc(p.products) : '<span class="muted">（主要品種なし）</span>') + '</div>' +
+        ((p.note || p.revisedAt) ? '<div class="pattern-note">' + esc([p.note, p.revisedAt ? '改定 ' + p.revisedAt : ''].filter(function (x) { return x; }).join(' / ')) + '</div>' : '') +
+      '</div>';
+    }).join('') + '</div>';
+    $('panel-patterns').innerHTML = html;
+  }
+
+  // ------------------------------------------------------------------
+  // 入力（S-02。plan/05 §4、docs/04 第1部 §4・§5）
+  // ------------------------------------------------------------------
+  function p2(n) { return (n < 10 ? '0' : '') + n; }
+  function nowParts() {
+    var d = new Date();
+    return { date: d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()), time: p2(d.getHours()) + ':' + p2(d.getMinutes()) };
+  }
+  function toCents(v) {
+    var s = String(v === null || v === undefined ? '' : v).replace(/[０-９．]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).trim();
+    if (!/^\d+(\.\d+)?$/.test(s)) return null;
+    var n = Number(s);
+    return Math.abs(n * 100 - Math.round(n * 100)) < 1e-6 ? Math.round(n * 100) : NaN;
+  }
+
+  /**
+   * 入力フォームの状態を用意する。パターン・燃料は今の設定から（初回だけ）、日付と時刻は開くたびに今にする（K-29）。
+   * 登録するまでは、ほかの項目の入力を残す
+   */
+  function initForm() {
+    if (!state.form) {
+      var c = state.current;
+      var pat = c ? findPattern(c.pattern) : null;
+      if (pat && !pat.active) pat = null;
+      state.form = { pattern: pat ? pat.pattern : '', fuel: c ? c.fuel : '', pressure: pat ? fmt2(pat.mainPressure) : '', product: '', note: '', errors: {} };
+    }
+    var n = nowParts();
+    state.form.date = n.date;
+    state.form.time = n.time;
+    state.form.errors = {};
+  }
+
+  function fieldHtml(key, label, required, inner, hint) {
+    return '<div class="field" data-field="' + key + '"><div class="field-label"><span>' + esc(label) + '</span>' + (required ? '<span class="req">必須</span>' : '') + '</div>' +
+      inner + (hint || '') + '<div class="field-error" data-error="' + key + '"></div></div>';
+  }
+
+  function renderInput() {
+    var f = state.form;
+    var op = findOperator(state.operatorId);
+    var patterns = state.patterns.filter(function (p) { return p.active; });
+    var products = state.products.filter(function (p) { return p.active; });
+    var max = state.settings.NOTE_MAX_LENGTH || 200;
+    var html = '<div class="card input-card">' +
+      fieldHtml('pattern', '設定パターン', true, '<div class="seg" id="seg-pattern">' + patterns.map(function (p) {
+        return '<button type="button" class="seg-item" data-pattern="' + esc(p.pattern) + '">' + esc(p.pattern) + '<small class="num">' + esc(fmt2(p.mainPressure)) + '</small></button>';
+      }).join('') + '</div>') +
+      fieldHtml('fuel', 'メインボイラ', true, '<div class="seg seg-2" id="seg-fuel">' + state.fuels.map(function (x) {
+        return '<button type="button" class="seg-item' + (x === '重油' ? ' fuel-oil' : '') + '" data-fuel="' + esc(x) + '">' + esc(x) + '</button>';
+      }).join('') + '</div>') +
+      fieldHtml('pressure', '設定圧力（MPa）', true,
+        '<div class="stepper"><button type="button" class="btn btn-secondary" id="btn-minus" aria-label="0.01 下げる">−</button>' +
+        '<input class="input" id="in-pressure" inputmode="decimal" autocomplete="off" value="' + esc(f.pressure) + '" aria-label="設定圧力">' +
+        '<button type="button" class="btn btn-secondary" id="btn-plus" aria-label="0.01 上げる">＋</button></div>',
+        '<div class="field-hint" id="pressure-hint"></div><div class="notice-warn" id="pressure-warn" hidden></div>') +
+      fieldHtml('date', '日付・時刻', true,
+        '<div class="dt-row"><input class="input" type="date" id="in-date" value="' + esc(f.date) + '" aria-label="日付">' +
+        '<input class="input" type="time" id="in-time" value="' + esc(f.time) + '" aria-label="時刻">' +
+        '<button type="button" class="btn btn-secondary btn-now" id="btn-now">今の時刻にする</button></div>',
+        '<div class="field-error" data-error="time"></div>') +
+      fieldHtml('setterId', '設定者', true,
+        '<div class="setter-box">' + icon('person', 'icon-sm') + esc(op ? operatorLabel(op) : '（未選択）') + '</div>',
+        '<div class="field-hint">変えるときは、右上の名前のボタンから選び直してください</div>') +
+      fieldHtml('product', '生産品種', false,
+        '<select class="select" id="in-product"><option value="">（選ばない）</option>' + products.map(function (p) {
+          return '<option value="' + esc(p.name) + '"' + (p.name === f.product ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+        }).join('') + '</select>') +
+      fieldHtml('note', '備考', false,
+        '<textarea class="textarea" id="in-note" rows="3" placeholder="変更の理由など">' + esc(f.note) + '</textarea>',
+        '<div class="counter" id="note-counter"></div>') +
+    '</div>' +
+    '<div class="submit-bar"><button type="button" class="btn btn-primary btn-block" id="btn-submit">登録する</button></div>';
+    $('panel-input').innerHTML = html;
+
+    document.querySelectorAll('#seg-pattern .seg-item').forEach(function (b) {
+      b.addEventListener('click', function () { selectPattern(Number(b.getAttribute('data-pattern'))); });
+    });
+    document.querySelectorAll('#seg-fuel .seg-item').forEach(function (b) {
+      b.addEventListener('click', function () { f.fuel = b.getAttribute('data-fuel'); clearFieldError('fuel'); updateInputUI(); });
+    });
+    $('in-pressure').addEventListener('input', function () { f.pressure = this.value; clearFieldError('pressure'); updatePressureUI(); });
+    $('btn-minus').addEventListener('click', function () { stepPressure(-1); });
+    $('btn-plus').addEventListener('click', function () { stepPressure(1); });
+    $('in-date').addEventListener('input', function () { f.date = this.value; clearFieldError('date'); });
+    $('in-time').addEventListener('input', function () { f.time = this.value; clearFieldError('date'); clearFieldError('time'); });
+    $('btn-now').addEventListener('click', function () { var n = nowParts(); f.date = n.date; f.time = n.time; $('in-date').value = n.date; $('in-time').value = n.time; });
+    $('in-product').addEventListener('change', function () { f.product = this.value; clearFieldError('product'); });
+    $('in-note').addEventListener('input', function () { f.note = this.value; clearFieldError('note'); updateNoteCounter(); });
+    $('btn-submit').addEventListener('click', submitInput);
+    updateInputUI();
+    showFieldErrors(f.errors);
+  }
+
+  /** パターンを選ぶと、そのパターンのメイン圧力を圧力の欄に入れる（手で変えたあとでも上書きする。docs/04 第1部 §5） */
+  function selectPattern(no) {
+    var f = state.form;
+    var p = findPattern(no);
+    f.pattern = no;
+    if (p) f.pressure = fmt2(p.mainPressure);
+    $('in-pressure').value = f.pressure;
+    clearFieldError('pattern'); clearFieldError('pressure');
+    updateInputUI();
+  }
+
+  function stepPressure(delta) {
+    var f = state.form;
+    var cents = toCents(f.pressure);
+    if (cents === null || isNaN(cents)) { var p = findPattern(f.pattern); cents = p ? Math.round(p.mainPressure * 100) : Math.round((state.settings.PRESSURE_MIN || 0.5) * 100); }
+    else cents += delta;
+    cents = Math.min(Math.round((state.settings.PRESSURE_MAX || 0.8) * 100), Math.max(Math.round((state.settings.PRESSURE_MIN || 0.5) * 100), cents));
+    f.pressure = (cents / 100).toFixed(2);
+    $('in-pressure').value = f.pressure;
+    clearFieldError('pressure');
+    updatePressureUI();
+  }
+
+  function updateInputUI() {
+    var f = state.form;
+    document.querySelectorAll('#seg-pattern .seg-item').forEach(function (b) { b.classList.toggle('is-selected', Number(b.getAttribute('data-pattern')) === f.pattern); });
+    document.querySelectorAll('#seg-fuel .seg-item').forEach(function (b) { b.classList.toggle('is-selected', b.getAttribute('data-fuel') === f.fuel); });
+    updatePressureUI();
+    updateNoteCounter();
+  }
+
+  /** 基準の表示と、マスタと違うときの注意（M-21） */
+  function updatePressureUI() {
+    var f = state.form;
+    var p = findPattern(f.pattern);
+    $('pressure-hint').textContent = p ? '基準（パターン' + p.pattern + '）: ' + fmt2(p.mainPressure) + ' MPa' : 'パターンを選ぶと基準の圧力が入ります';
+    var cents = toCents(f.pressure);
+    var diff = p && cents !== null && !isNaN(cents) && cents !== Math.round(p.mainPressure * 100);
+    var warn = $('pressure-warn');
+    warn.hidden = !diff;
+    warn.innerHTML = diff ? icon('warn', 'icon-sm') + ' ' + esc(msg('M21', { p: p.pattern, m: fmt2(p.mainPressure) })) : '';
+  }
+
+  function updateNoteCounter() {
+    var max = state.settings.NOTE_MAX_LENGTH || 200;
+    var len = String(state.form.note || '').trim().length;
+    var el = $('note-counter');
+    el.textContent = len + ' / ' + max;
+    el.classList.toggle('is-over', len > max);
+  }
+
+  function clearFieldError(key) {
+    if (state.form && state.form.errors) delete state.form.errors[key];
+    var el = document.querySelector('.field-error[data-error="' + key + '"]');
+    if (el) el.textContent = '';
+    var field = document.querySelector('.field[data-field="' + (key === 'time' ? 'date' : key) + '"]');
+    if (field && !(state.form.errors[key === 'time' ? 'date' : key])) field.classList.remove('has-error');
+  }
+
+  /** 項目ごとのエラーを出し、最初のエラーまでスクロールする */
+  function showFieldErrors(errors) {
+    var first = null;
+    Object.keys(errors || {}).forEach(function (k) {
+      var el = document.querySelector('.field-error[data-error="' + k + '"]');
+      if (el) el.textContent = errors[k];
+      var field = document.querySelector('.field[data-field="' + (k === 'time' ? 'date' : k) + '"]');
+      if (field) { field.classList.add('has-error'); if (!first) first = field; }
+    });
+    if (first && first.scrollIntoView) first.scrollIntoView({ block: 'center' });
+  }
+
+  /** 画面側のチェック（サーバーと同じ規則。最終的な判定はサーバー） */
+  function validateForm(f) {
+    var e = {};
+    var min = state.settings.PRESSURE_MIN || 0.5, max = state.settings.PRESSURE_MAX || 0.8;
+    if (!findPattern(f.pattern)) e.pattern = 'パターンを選んでください';
+    if (state.fuels.indexOf(f.fuel) < 0) e.fuel = 'メインボイラを選んでください';
+    var c = toCents(f.pressure);
+    if (c === null || isNaN(c) || c < Math.round(min * 100) || c > Math.round(max * 100)) e.pressure = fmt2(min) + '〜' + fmt2(max) + ' の範囲で、小数2桁までで入れてください';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.date || '')) e.date = '日付を正しく入れてください';
+    if (!/^\d{1,2}:\d{2}$/.test(f.time || '')) e.time = '時刻を正しく入れてください';
+    if (!findOperator(state.operatorId)) e.setterId = '設定者を選んでください';
+    var noteMax = state.settings.NOTE_MAX_LENGTH || 200;
+    if (String(f.note || '').trim().length > noteMax) e.note = '備考は' + noteMax + '文字までにしてください';
+    return e;
+  }
+
+  function isFuture(f) {
+    var d = new Date(f.date + 'T' + (f.time.length === 4 ? '0' + f.time : f.time) + ':00');
+    return !isNaN(d.getTime()) && d.getTime() - Date.now() > (state.settings.FUTURE_WARN_MINUTES || 10) * 60000;
+  }
+
+  function submitInput() {
+    var f = state.form;
+    f.pressure = $('in-pressure').value;
+    f.date = $('in-date').value; f.time = $('in-time').value;
+    var errors = validateForm(f);
+    if (Object.keys(errors).length) { f.errors = errors; showFieldErrors(errors); return; }
+    var p = findPattern(f.pattern);
+    var op = findOperator(state.operatorId);
+    var pressure = (toCents(f.pressure) / 100).toFixed(2);
+    var notices = [];
+    if (p && toCents(f.pressure) !== Math.round(p.mainPressure * 100)) notices.push(msg('M21', { p: p.pattern, m: fmt2(p.mainPressure) }));
+    if (isFuture(f)) notices.push(MESSAGES.M22);
+    var html = '<p class="modal-lead">' + esc(MESSAGES.M23) + '</p><dl class="summary">' +
+      '<dt>日時</dt><dd class="num">' + esc(f.date.replace(/-/g, '/') + ' ' + f.time) + '</dd>' +
+      '<dt>パターン</dt><dd>' + esc(f.pattern) + '</dd>' +
+      '<dt>メインボイラ</dt><dd>' + esc(f.fuel) + '</dd>' +
+      '<dt>設定圧力</dt><dd class="num">' + esc(pressure) + ' MPa</dd>' +
+      '<dt>設定者</dt><dd>' + esc(operatorLabel(op)) + '</dd>' +
+      '<dt>生産品種</dt><dd>' + esc(f.product || '—') + '</dd>' +
+      '<dt>備考</dt><dd>' + esc(String(f.note || '').trim() || '—') + '</dd></dl>' +
+      notices.map(function (n) { return '<div class="notice-warn">' + icon('warn', 'icon-sm') + ' ' + esc(n) + '</div>'; }).join('');
+    var sending = false;
+    openModal({
+      title: '登録の確認', html: html,
+      actions: [
+        { label: '戻る', cls: 'btn-secondary' },
+        { label: '登録する', cls: 'btn-primary', onClick: function (close) {
+          if (sending) return; // 二度押しを防ぐ
+          sending = true;
+          close();
+          var payload = { date: f.date, time: f.time, pattern: f.pattern, fuel: f.fuel, pressure: pressure, setterId: state.operatorId, product: f.product, note: String(f.note || '').trim() };
+          api('createRecord', payload).then(function () {
+            toast(MESSAGES.M01);
+            state.form = null;
+            return refreshHome().then(function () { switchTab('home'); });
+          }, function (err) {
+            if (err && err.code === 'VALIDATION' && err.error && err.error.fields) { f.errors = err.error.fields; showFieldErrors(f.errors); }
+          });
+        } }
+      ]
+    });
+  }
+
+  /** ホームのデータ（今の設定・直近）を読み直す */
+  function refreshHome() {
+    return api('getHome').then(function (d) { state.current = d.current; state.recent = d.recent; });
+  }
+
+  // ------------------------------------------------------------------
+  // 履歴（S-03。plan/05 §5、docs/04 第1部 §8）
+  // ------------------------------------------------------------------
+  var PRODUCT_UNSET = '（未設定）';
+
+  function activeFilterCount(f) {
+    return ['dateFrom', 'dateTo', 'pattern', 'fuel', 'setterId', 'product'].filter(function (k) { return f[k] !== undefined && f[k] !== ''; }).length;
+  }
+
+  function optionHtml(value, label, selected) {
+    return '<option value="' + esc(value) + '"' + (String(value) === String(selected === undefined ? '' : selected) ? ' selected' : '') + '>' + esc(label) + '</option>';
+  }
+
+  /** 履歴タブの骨組み（絞り込みの欄・件数・一覧・ページ送り） */
+  function renderHistory() {
+    var h = state.history, f = h.filter;
+    var n = activeFilterCount(f);
+    var html =
+      '<div class="history-toolbar">' +
+        '<button type="button" class="btn btn-secondary" id="btn-filter-toggle" aria-expanded="' + (h.panelOpen ? 'true' : 'false') + '">絞り込み' + (n ? ' <span class="filter-count">' + n + '</span>' : '') + '</button>' +
+        '<span class="history-count" id="history-count"></span>' +
+        (n ? '<button type="button" class="btn-link" id="btn-filter-clear">条件をクリア</button>' : '') +
+      '</div>' +
+      (state.isAdmin ? '<div class="history-toolbar">' +
+        '<button type="button" class="btn btn-secondary toggle-btn' + (f.includeDeleted ? ' is-on' : '') + '" id="btn-include-deleted" aria-pressed="' + (f.includeDeleted ? 'true' : 'false') + '">' + (f.includeDeleted ? '☑' : '☐') + ' 削除済みも表示</button>' +
+        '<button type="button" class="btn btn-secondary" id="btn-logs">操作ログ</button>' +
+      '</div>' : '') +
+      '<div class="card filter-card" id="filter-card"' + (h.panelOpen ? '' : ' hidden') + '>' +
+        '<div class="filter-grid">' +
+          '<div class="field"><div class="field-label">期間（から）</div><input class="input" type="date" id="f-from" value="' + esc(f.dateFrom || '') + '"><div class="field-error" data-error="dateFrom"></div></div>' +
+          '<div class="field"><div class="field-label">期間（まで）</div><input class="input" type="date" id="f-to" value="' + esc(f.dateTo || '') + '"><div class="field-error" data-error="dateTo"></div></div>' +
+          '<div class="field"><div class="field-label">パターン</div><select class="select" id="f-pattern">' + optionHtml('', 'すべて', f.pattern) +
+            state.patterns.map(function (p) { return optionHtml(p.pattern, 'パターン' + p.pattern + (p.active ? '' : '（無効）'), f.pattern); }).join('') + '</select></div>' +
+          '<div class="field"><div class="field-label">メインボイラ</div><select class="select" id="f-fuel">' + optionHtml('', 'すべて', f.fuel) +
+            state.fuels.map(function (x) { return optionHtml(x, x, f.fuel); }).join('') + '</select></div>' +
+          '<div class="field"><div class="field-label">設定者</div><select class="select" id="f-setter">' + optionHtml('', 'すべて', f.setterId) +
+            state.operators.map(function (o) { return optionHtml(o.operatorId, operatorLabel(o) + (o.active ? '' : '（無効）'), f.setterId); }).join('') + '</select></div>' +
+          '<div class="field"><div class="field-label">生産品種</div><select class="select" id="f-product">' + optionHtml('', 'すべて', f.product) +
+            state.products.map(function (p) { return optionHtml(p.name, p.name + (p.active ? '' : '（無効）'), f.product); }).join('') + optionHtml(PRODUCT_UNSET, PRODUCT_UNSET, f.product) + '</select></div>' +
+        '</div>' +
+        '<div class="filter-actions"><button type="button" class="btn btn-secondary" id="btn-filter-close">閉じる</button><button type="button" class="btn btn-primary" id="btn-filter-apply">この条件で表示</button></div>' +
+      '</div>' +
+      '<div class="record-list" id="history-list"></div>' +
+      '<div class="pager-wrap" id="pager-wrap"></div>';
+    $('panel-history').innerHTML = html;
+    $('btn-filter-toggle').addEventListener('click', function () { h.panelOpen = !h.panelOpen; renderHistory(); renderHistoryList(); });
+    $('btn-filter-close').addEventListener('click', function () { h.panelOpen = false; renderHistory(); renderHistoryList(); });
+    $('btn-filter-apply').addEventListener('click', applyHistoryFilter);
+    if ($('btn-filter-clear')) $('btn-filter-clear').addEventListener('click', function () { setHistoryFilter(f.includeDeleted ? { includeDeleted: true } : {}); });
+    if ($('btn-include-deleted')) $('btn-include-deleted').addEventListener('click', function () {
+      var nf = {}; Object.keys(f).forEach(function (k) { nf[k] = f[k]; });
+      if (f.includeDeleted) delete nf.includeDeleted; else nf.includeDeleted = true;
+      setHistoryFilter(nf);
+    });
+    if ($('btn-logs')) $('btn-logs').addEventListener('click', openLogs);
+    renderHistoryList();
+  }
+
+  function applyHistoryFilter() {
+    var f = {};
+    var from = $('f-from').value, to = $('f-to').value;
+    if (from) f.dateFrom = from;
+    if (to) f.dateTo = to;
+    if (from && to && from > to) { document.querySelector('.field-error[data-error="dateTo"]').textContent = '「から」より後の日付にしてください'; return; }
+    ['pattern', 'fuel', 'product'].forEach(function (k) { var v = $('f-' + k).value; if (v !== '') f[k] = v; });
+    var s = $('f-setter').value; if (s !== '') f.setterId = s;
+    state.history.panelOpen = false;
+    setHistoryFilter(f);
+  }
+
+  /** 絞り込みの条件を変えて、1ページ目から読み直す（条件はタブを切り替えても残す。sessionStorage） */
+  function setHistoryFilter(f) {
+    state.history.filter = f;
+    storageSet('sessionStorage', STORAGE.HISTORY_FILTER, JSON.stringify(f));
+    renderHistory();
+    loadHistory(1);
+  }
+
+  /** 履歴の page ページ目を読む（省略したら今のページ）。ページ番号もタブを切り替えても残す（sessionStorage）。
+      ページ数を超えた番号なら、サーバーが最後のページを返す */
+  function loadHistory(page, scrollToTop) {
+    var h = state.history;
+    return api('listRecords', h.filter, page || h.page || 1).then(function (d) {
+      h.items = d.items; h.total = d.total; h.page = d.page; h.pageCount = d.pageCount; h.offset = d.offset; h.loaded = true;
+      storageSet('sessionStorage', STORAGE.HISTORY_PAGE, String(d.page));
+      if (state.tab === 'history') renderHistoryList();
+      if (scrollToTop && $('panel-history')) window.scrollTo(0, 0);
+    }, function (err) {
+      if (err && err.code === 'VALIDATION' && err.error && err.error.fields) {
+        h.panelOpen = true; renderHistory();
+        Object.keys(err.error.fields).forEach(function (k) { var el = document.querySelector('.field-error[data-error="' + k + '"]'); if (el) el.textContent = err.error.fields[k]; });
+      }
+    });
+  }
+
+  function renderHistoryList() {
+    var h = state.history;
+    if (!$('history-list')) return;
+    var n = activeFilterCount(h.filter);
+    $('history-count').textContent = h.loaded ? (h.total ? (h.offset + 1) + '〜' + (h.offset + h.items.length) + '件目 ／ 全 ' + h.total + ' 件' : '') : '読み込み中…';
+    $('history-list').innerHTML = h.loaded && !h.items.length ? '<div class="card empty">' + esc(n ? MESSAGES.M52 : MESSAGES.M51) + '</div>' :
+      (h.items.length ? HISTORY_HEAD_HTML : '') + h.items.map(recordCardHtml).join('');
+    $('pager-wrap').innerHTML = h.loaded ? pagerHtml(h.page, h.pageCount) : '';
+    $('pager-wrap').querySelectorAll('[data-page]').forEach(function (b) {
+      b.addEventListener('click', function () { loadHistory(Number(b.getAttribute('data-page')), true); });
+    });
+    var sel = $('pager-select');
+    if (sel) sel.addEventListener('change', function () { loadHistory(Number(sel.value), true); });
+  }
+
+  /** PC の履歴の表の見出し（スマホ・タブレットでは CSS で隠す） */
+  var HISTORY_HEAD_HTML = '<div class="record-head" aria-hidden="true"><span>変更日時</span><span>パターン・燃料</span><span>圧力(MPa)</span><span>設定者</span><span>生産品種</span><span>備考</span></div>';
+
+  /** ページ送り。スマホは「‹ 前へ」「3 / 8 ページ（選ぶ）」「次へ ›」、タブレット・PC は番号のボタン（CSS で切り替える）。
+      番号は最初・最後・今のページの前後1つを出し、2つ以上飛ぶところは「…」にする */
+  function pagerHtml(page, count) {
+    if (count <= 1) return '';
+    var nums = [];
+    for (var i = 1; i <= count; i++) if (i === 1 || i === count || Math.abs(i - page) <= 1 || (Math.abs(i - page) === 2 && (i === 2 || i === count - 1))) nums.push(i);
+    var numsHtml = '', prev = 0;
+    nums.forEach(function (n) {
+      if (n - prev > 1) numsHtml += '<span class="pager-gap" aria-hidden="true">…</span>';
+      numsHtml += '<button type="button" class="pager-btn pager-num' + (n === page ? ' is-current' : '') + '" data-page="' + n + '"' + (n === page ? ' aria-current="page"' : '') + ' aria-label="' + n + 'ページ目">' + n + '</button>';
+      prev = n;
+    });
+    var opts = '';
+    for (var k = 1; k <= count; k++) opts += '<option value="' + k + '"' + (k === page ? ' selected' : '') + '>' + k + ' / ' + count + ' ページ</option>';
+    return '<nav class="pager" aria-label="ページ送り">' +
+      '<button type="button" class="pager-btn pager-prev"' + (page <= 1 ? ' disabled' : ' data-page="' + (page - 1) + '"') + '>‹ 前へ</button>' +
+      '<span class="pager-nums">' + numsHtml + '</span>' +
+      '<select class="select pager-select" id="pager-select" aria-label="ページを選ぶ">' + opts + '</select>' +
+      '<button type="button" class="pager-btn pager-next"' + (page >= count ? ' disabled' : ' data-page="' + (page + 1) + '"') + '>次へ ›</button>' +
+    '</nav>';
+  }
+
+  // ------------------------------------------------------------------
+  // 記録の詳細（S-04。plan/05 §6）。修正・削除はフェーズ6で足す
+  // ------------------------------------------------------------------
+  function openRecord(recordId) {
+    if (!recordId) return;
+    api('getRecord', recordId).then(function (d) {
+      var r = d.record;
+      var p = findPattern(r.pattern);
+      var op = findOperator(r.setterId);
+      var html =
+        '<div class="detail-badges">' + (r.deleted ? '<span class="badge badge-deleted">削除済み</span>' : '') +
+          '<span class="badge badge-pattern">' + esc(patternLabel(r.pattern)) + '</span>' + fuelBadge(r.fuel) + diffBadge(r) + '</div>' +
+        '<dl class="summary">' +
+          '<dt>日時</dt><dd class="num">' + esc(r.changedAt) + '</dd>' +
+          '<dt>パターン</dt><dd>' + esc(r.pattern) + (p ? '<span class="sub">基準（メイン）' + esc(fmt2(p.mainPressure)) + ' MPa</span>' : '') + '</dd>' +
+          '<dt>メインボイラ</dt><dd>' + esc(r.fuel) + '</dd>' +
+          '<dt>設定圧力</dt><dd><span class="detail-pressure num">' + esc(fmt2(r.pressure)) + '</span> MPa</dd>' +
+          '<dt>設定者</dt><dd>' + esc(setterLabel(r) || '—') + (op && !op.active ? '<span class="sub">（無効）</span>' : '') + '</dd>' +
+          '<dt>生産品種</dt><dd>' + esc(r.product || '—') + '</dd>' +
+          '<dt>備考</dt><dd>' + esc(r.note || '—') + '</dd>' +
+          '<dt>データ区分</dt><dd>' + esc(r.source) + (r.source === '移行' && r.sourceRow ? '<span class="sub">Excel の ' + esc(r.sourceRow) + ' 行目</span>' : '') + '</dd>' +
+          '<dt>記録ID</dt><dd class="num">' + esc(r.recordId) + '</dd>' +
+          '<dt>登録</dt><dd class="num">' + esc(r.createdAt) + '<span class="sub">' + esc(r.createdByName) + '</span></dd>' +
+          '<dt>更新</dt><dd class="num">' + esc(r.updatedAt) + '<span class="sub">' + esc(r.updatedByName) + '</span></dd>' +
+        '</dl>' + (!d.canEdit && !r.deleted ? '<div class="notice-info">' + esc(MESSAGES.M24) + '</div>' : '');
+      var actions = [{ label: '閉じる', cls: 'btn-secondary' }];
+      if (d.canDelete) actions.push({ label: '削除する', cls: 'btn-danger', onClick: function (close) { close(); confirmDelete(r); } });
+      if (d.canRestore) actions.push({ label: '元に戻す', cls: 'btn-primary', onClick: function (close) { close(); restoreRec(r); } });
+      if (d.canEdit) actions.push({ label: '修正する', cls: 'btn-primary', onClick: function (close) { close(); openEditor(d); } });
+      openModal({ title: '記録の詳細', html: html, sheet: true, actions: actions });
+      $('modal-root').lastChild.setAttribute('data-kind', 'record');
+    }, function (err) {
+      if (err && (err.code === 'NOT_FOUND' || err.code === 'CONFLICT')) { if (state.tab === 'history') loadHistory(); else refreshHome().then(function () { renderTab(state.tab); }); }
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // 管理者モード（S-06。plan/05 §7.2、docs/04 第1部 §3）
+  // ------------------------------------------------------------------
+  function renderAdminChip() {
+    var chip = $('admin-chip');
+    if (!chip) return;
+    if (state.isAdmin && state.adminExpiresAt) {
+      var m = Math.max(1, Math.ceil((state.adminExpiresAt - Date.now()) / 60000));
+      chip.innerHTML = icon('key', 'icon-sm') + '<span><span class="admin-word">管理者 </span>' + m + '分</span>';
+      chip.classList.add('is-admin');
+      chip.setAttribute('aria-label', '管理者モード（残り' + m + '分）。押すと終了');
+    } else {
+      chip.innerHTML = icon('key', 'icon-sm');
+      chip.classList.remove('is-admin');
+      chip.setAttribute('aria-label', '管理者モードに入る');
+    }
+    chip.hidden = !findOperator(state.operatorId);
+  }
+
+  function setAdmin(token, expiresAt) {
+    state.token = token; state.adminExpiresAt = expiresAt; state.isAdmin = true;
+    storageSet('sessionStorage', STORAGE.TOKEN, JSON.stringify({ operatorId: state.operatorId, token: token, expiresAt: expiresAt }));
+    renderAdminChip();
+  }
+
+  /** 管理者モードを解く。expired=true なら「時間が切れました」を出し、開いている画面を読み直す */
+  function clearAdmin(expired) {
+    var was = state.isAdmin;
+    state.token = null; state.adminExpiresAt = null; state.isAdmin = false;
+    storageSet('sessionStorage', STORAGE.TOKEN, null);
+    renderAdminChip();
+    if (expired && was) { toast(MESSAGES.M14); if (state.history.filter.includeDeleted) delete state.history.filter.includeDeleted; renderTab(state.tab); }
+  }
+
+  /** 残り時間の表示を更新し、0 になったら管理者モードを解く（M-14） */
+  function tickAdmin() {
+    if (!state.isAdmin) return;
+    if (state.adminExpiresAt && state.adminExpiresAt <= Date.now()) clearAdmin(true);
+    else renderAdminChip();
+  }
+
+  function onAdminChip() {
+    if (state.isAdmin) {
+      openModal({ title: '管理者モード', html: '<p>' + esc(MESSAGES.M13) + '</p>', actions: [
+        { label: '続ける', cls: 'btn-secondary' },
+        { label: '終了する', cls: 'btn-primary', onClick: function (close) {
+          close();
+          var c = ctx();
+          clearAdmin(false);
+          google.script.run.withSuccessHandler(function () {}).withFailureHandler(function () {}).logoutAdmin(c);
+          renderTab(state.tab);
+        } }
+      ] });
+    } else {
+      openPinDialog().then(function () { renderTab(state.tab); }, function () { /* キャンセル */ });
+    }
+  }
+
+  /** 暗証番号のダイアログ。入れて認証できたら resolve、キャンセルしたら reject */
+  function openPinDialog() {
+    return new Promise(function (resolve, reject) {
+      var existing = document.querySelector('.modal[data-kind="pin"]');
+      if (existing) existing.parentNode.removeChild(existing);
+      var done = false;
+      var html = '<p class="muted" style="margin:0 0 12px">管理者の暗証番号を入れてください。入ると30分間、すべての記録の修正・削除ができます</p>' +
+        '<input class="input pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="8" id="pin-input" aria-label="暗証番号">' +
+        '<div class="field-error" id="pin-error"></div>';
+      function submit(close) {
+        var pin = $('pin-input').value.trim();
+        if (!/^\d{4,8}$/.test(pin)) { $('pin-error').textContent = '4〜8桁の数字で入れてください'; return; }
+        callServer('authenticateAdmin', [state.operatorId, pin], { silent: ['AUTH_FAILED', 'AUTH_LOCKED'] }).then(function (d) {
+          done = true;
+          close();
+          setAdmin(d.token, d.expiresAt);
+          toast(MESSAGES.M12);
+          resolve();
+        }, function (err) {
+          var e = err && err.error;
+          if (err.code === 'AUTH_FAILED') $('pin-error').textContent = e && e.message ? e.message : MESSAGES.M15;
+          else if (err.code === 'AUTH_LOCKED') $('pin-error').textContent = msg('M16', { n: e && e.detail ? e.detail.minutes : '' });
+          $('pin-input').value = '';
+          $('pin-input').focus();
+        });
+      }
+      var closeFn = openModal({
+        title: '管理者モード', html: html,
+        onClose: function () { if (!done) reject({ handled: true, code: 'CANCEL' }); },
+        actions: [
+          { label: 'キャンセル', cls: 'btn-secondary', onClick: function (close) { close(); reject({ handled: true, code: 'CANCEL' }); } },
+          { label: '入る', cls: 'btn-primary', onClick: function (close) { submit(close); } }
+        ]
+      });
+      var modal = $('modal-root').lastChild;
+      modal.setAttribute('data-kind', 'pin');
+      $('pin-input').addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(closeFn); });
+      setTimeout(function () { if ($('pin-input')) $('pin-input').focus(); }, 50);
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // 記録の修正・削除・元に戻す（S-04。plan/05 §6、docs/04 第1部 §6）
+  // ------------------------------------------------------------------
+  /** 修正・削除のあと: ホームと（開いていれば）履歴を読み直す */
+  function afterChange() {
+    return refreshHome().then(function () {
+      if (state.tab === 'history') { renderHistory(); return loadHistory(); }
+      renderTab(state.tab);
+    }, function () {});
+  }
+
+  /** エラーのあと: CONFLICT / NOT_FOUND なら一覧を読み直す（M-42・M-43 は表示済み） */
+  function afterError(err) {
+    if (err && (err.code === 'CONFLICT' || err.code === 'NOT_FOUND')) afterChange();
+  }
+
+  function confirmDelete(r) {
+    openModal({ title: '削除の確認', html: '<p>' + esc(MESSAGES.M31) + '</p><p class="muted num">' + esc(r.changedAt + '  ' + patternLabel(r.pattern) + '  ' + fmt2(r.pressure) + ' MPa') + '</p>', actions: [
+      { label: 'キャンセル', cls: 'btn-secondary' },
+      { label: '削除する', cls: 'btn-danger', onClick: function (close) {
+        close();
+        api('deleteRecord', r.recordId, r.version).then(function () { toast(MESSAGES.M03); afterChange(); }, afterError);
+      } }
+    ] });
+  }
+
+  function restoreRec(r) {
+    api('restoreRecord', r.recordId, r.version).then(function () { toast(MESSAGES.M04); afterChange(); }, afterError);
+  }
+
+  /** 修正フォーム（入力画面と同じ部品。モーダルの中だけで探すので、入力タブと ID は重ならない） */
+  function openEditor(d) {
+    var r = d.record;
+    var e = { pattern: r.pattern, fuel: r.fuel, pressure: fmt2(r.pressure), date: r.date.replace(/\//g, '-'), time: r.time, setterId: r.setterId, product: r.product || '', note: r.note || '' };
+    var patterns = state.patterns.filter(function (p) { return p.active || p.pattern === r.pattern; });
+    var products = state.products.filter(function (p) { return p.active || p.name === r.product; });
+    var setters = state.operators.filter(function (o) { return o.active || o.operatorId === r.setterId; });
+    var op = findOperator(r.setterId);
+    var html = '<div class="editor">' +
+      fieldHtml('pattern', '設定パターン', true, '<div class="seg" data-ed="pattern">' + patterns.map(function (p) {
+        return '<button type="button" class="seg-item" data-pattern="' + esc(p.pattern) + '">' + esc(p.pattern) + '<small class="num">' + esc(fmt2(p.mainPressure)) + '</small></button>';
+      }).join('') + '</div>') +
+      fieldHtml('fuel', 'メインボイラ', true, '<div class="seg seg-2" data-ed="fuel">' + state.fuels.map(function (x) {
+        return '<button type="button" class="seg-item' + (x === '重油' ? ' fuel-oil' : '') + '" data-fuel="' + esc(x) + '">' + esc(x) + '</button>';
+      }).join('') + '</div>') +
+      fieldHtml('pressure', '設定圧力（MPa）', true,
+        '<div class="stepper"><button type="button" class="btn btn-secondary" data-ed="minus" aria-label="0.01 下げる">−</button>' +
+        '<input class="input" data-ed="pressure" inputmode="decimal" autocomplete="off" value="' + esc(e.pressure) + '" aria-label="設定圧力">' +
+        '<button type="button" class="btn btn-secondary" data-ed="plus" aria-label="0.01 上げる">＋</button></div>',
+        '<div class="field-hint" data-ed="hint"></div><div class="notice-warn" data-ed="warn" hidden></div>') +
+      fieldHtml('date', '日付・時刻', true,
+        '<div class="dt-row"><input class="input" type="date" data-ed="date" value="' + esc(e.date) + '" aria-label="日付">' +
+        '<input class="input" type="time" data-ed="time" value="' + esc(e.time) + '" aria-label="時刻"></div>',
+        '<div class="field-error" data-error="time"></div>') +
+      fieldHtml('setterId', '設定者', true, d.canChangeSetter ?
+        '<select class="select" data-ed="setter">' + (r.setterId ? '' : '<option value="">（空）</option>') + setters.map(function (o) {
+          return '<option value="' + esc(o.operatorId) + '"' + (o.operatorId === r.setterId ? ' selected' : '') + '>' + esc(operatorLabel(o) + (o.active ? '' : '（無効）')) + '</option>';
+        }).join('') + '</select>' :
+        '<div class="setter-box">' + icon('person', 'icon-sm') + esc(setterLabel(r) || '—') + '</div>') +
+      fieldHtml('product', '生産品種', false, '<select class="select" data-ed="product"><option value="">（選ばない）</option>' + products.map(function (p) {
+        return '<option value="' + esc(p.name) + '"' + (p.name === e.product ? ' selected' : '') + '>' + esc(p.name + (p.active ? '' : '（無効）')) + '</option>';
+      }).join('') + '</select>') +
+      fieldHtml('note', '備考', false, '<textarea class="textarea" data-ed="note" rows="3">' + esc(e.note) + '</textarea>', '<div class="counter" data-ed="counter"></div>') +
+    '</div>';
+    var root;
+    function q(k) { return root.querySelector('[data-ed="' + k + '"]'); }
+    function refresh() {
+      root.querySelectorAll('[data-ed="pattern"] .seg-item').forEach(function (b) { b.classList.toggle('is-selected', Number(b.getAttribute('data-pattern')) === e.pattern); });
+      root.querySelectorAll('[data-ed="fuel"] .seg-item').forEach(function (b) { b.classList.toggle('is-selected', b.getAttribute('data-fuel') === e.fuel); });
+      var p = findPattern(e.pattern);
+      q('hint').textContent = p ? '基準（パターン' + p.pattern + '）: ' + fmt2(p.mainPressure) + ' MPa' : '';
+      var c = toCents(e.pressure);
+      var diff = p && c !== null && !isNaN(c) && c !== Math.round(p.mainPressure * 100);
+      q('warn').hidden = !diff;
+      q('warn').innerHTML = diff ? icon('warn', 'icon-sm') + ' ' + esc(msg('M21', { p: p.pattern, m: fmt2(p.mainPressure) })) : '';
+      var max = state.settings.NOTE_MAX_LENGTH || 200, len = String(e.note).trim().length;
+      q('counter').textContent = len + ' / ' + max;
+      q('counter').classList.toggle('is-over', len > max);
+    }
+    function showErrors(errors) {
+      root.querySelectorAll('.field-error').forEach(function (x) { x.textContent = ''; });
+      root.querySelectorAll('.field.has-error').forEach(function (x) { x.classList.remove('has-error'); });
+      Object.keys(errors).forEach(function (k) {
+        var el = root.querySelector('.field-error[data-error="' + k + '"]'); if (el) el.textContent = errors[k];
+        var f = root.querySelector('.field[data-field="' + (k === 'time' ? 'date' : k) + '"]'); if (f) f.classList.add('has-error');
+      });
+    }
+    var saving = false;
+    openModal({
+      title: '記録の修正', html: html, sheet: true,
+      actions: [
+        { label: 'キャンセル', cls: 'btn-secondary', onClick: function (close) { close(); openRecord(r.recordId); } },
+        { label: '保存する', cls: 'btn-primary', onClick: function (close) {
+          if (saving) return;
+          e.pressure = q('pressure').value; e.date = q('date').value; e.time = q('time').value;
+          var errors = {};
+          var min = state.settings.PRESSURE_MIN || 0.5, max = state.settings.PRESSURE_MAX || 0.8;
+          var c = toCents(e.pressure);
+          if (!findPattern(e.pattern)) errors.pattern = 'パターンを選んでください';
+          if (state.fuels.indexOf(e.fuel) < 0) errors.fuel = 'メインボイラを選んでください';
+          if (c === null || isNaN(c) || c < Math.round(min * 100) || c > Math.round(max * 100)) errors.pressure = fmt2(min) + '〜' + fmt2(max) + ' の範囲で、小数2桁までで入れてください';
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(e.date)) errors.date = '日付を正しく入れてください';
+          if (!/^\d{1,2}:\d{2}$/.test(e.time)) errors.time = '時刻を正しく入れてください';
+          if (String(e.note).trim().length > (state.settings.NOTE_MAX_LENGTH || 200)) errors.note = '備考は' + (state.settings.NOTE_MAX_LENGTH || 200) + '文字までにしてください';
+          if (Object.keys(errors).length) { showErrors(errors); return; }
+          var payload = { date: e.date, time: e.time, pattern: e.pattern, fuel: e.fuel, pressure: (c / 100).toFixed(2), product: e.product, note: String(e.note).trim() };
+          if (d.canChangeSetter) payload.setterId = e.setterId;
+          saving = true;
+          callServer('updateRecord', [r.recordId, payload, r.version], { silent: ['VALIDATION'] }).then(function (res) {
+            close();
+            toast(res.unchanged ? '変更はありませんでした' : MESSAGES.M02);
+            afterChange();
+          }, function (err) {
+            saving = false;
+            if (err && err.code === 'VALIDATION' && err.error && err.error.fields) showErrors(err.error.fields);
+            else if (err && (err.code === 'CONFLICT' || err.code === 'NOT_FOUND')) { close(); afterError(err); }
+          });
+        } }
+      ]
+    });
+    root = $('modal-root').lastChild;
+    root.setAttribute('data-kind', 'record-edit');
+    root.querySelectorAll('[data-ed="pattern"] .seg-item').forEach(function (b) {
+      b.addEventListener('click', function () { e.pattern = Number(b.getAttribute('data-pattern')); var p = findPattern(e.pattern); if (p) { e.pressure = fmt2(p.mainPressure); q('pressure').value = e.pressure; } refresh(); });
+    });
+    root.querySelectorAll('[data-ed="fuel"] .seg-item').forEach(function (b) { b.addEventListener('click', function () { e.fuel = b.getAttribute('data-fuel'); refresh(); }); });
+    q('pressure').addEventListener('input', function () { e.pressure = this.value; refresh(); });
+    function step(delta) {
+      var c = toCents(e.pressure);
+      if (c === null || isNaN(c)) { var p = findPattern(e.pattern); c = p ? Math.round(p.mainPressure * 100) : 50; } else c += delta;
+      c = Math.min(Math.round((state.settings.PRESSURE_MAX || 0.8) * 100), Math.max(Math.round((state.settings.PRESSURE_MIN || 0.5) * 100), c));
+      e.pressure = (c / 100).toFixed(2); q('pressure').value = e.pressure; refresh();
+    }
+    q('minus').addEventListener('click', function () { step(-1); });
+    q('plus').addEventListener('click', function () { step(1); });
+    if (q('setter')) q('setter').addEventListener('change', function () { e.setterId = this.value; });
+    q('product').addEventListener('change', function () { e.product = this.value; });
+    q('note').addEventListener('input', function () { e.note = this.value; refresh(); });
+    refresh();
+  }
+
+  // ------------------------------------------------------------------
+  // 操作ログ（管理者だけ。plan/05 §7.2）
+  // ------------------------------------------------------------------
+  function openLogs() {
+    var logs = { items: [], hasMore: false };
+    var root = null;
+    function rowsHtml() {
+      if (!logs.items.length) return '<div class="empty">操作ログはありません</div>';
+      return '<div class="log-list">' + logs.items.map(function (l) {
+        return '<div class="log-row"><div class="log-head"><span class="num">' + esc(l.loggedAt) + '</span><span>' + esc(l.action) + '</span>' +
+          '<span class="badge ' + (l.role === '管理者' ? 'badge-diff' : 'badge-pattern') + '">' + esc(l.role) + '</span></div>' +
+          '<div class="log-sub">' + esc(l.operatorName) + (l.recordId ? ' ・ <button type="button" class="btn-link num" data-log-record="' + esc(l.recordId) + '">' + esc(l.recordId) + '</button>' : '') + '</div></div>';
+      }).join('') + '</div>' + (logs.hasMore ? '<button type="button" class="btn btn-secondary btn-block mt-16" data-log-more>もっと見る</button>' : '');
+    }
+    function render() {
+      root.querySelector('.modal-body').innerHTML = rowsHtml();
+      var more = root.querySelector('[data-log-more]');
+      if (more) more.addEventListener('click', function () { load(true); });
+      root.querySelectorAll('[data-log-record]').forEach(function (b) {
+        b.addEventListener('click', function () { var id = b.getAttribute('data-log-record'); root.parentNode.removeChild(root); openRecord(id); });
+      });
+    }
+    function load(append) {
+      return api('listOperationLogs', append ? logs.items.length : 0).then(function (d) {
+        logs.items = append ? logs.items.concat(d.items) : d.items; logs.hasMore = d.hasMore;
+        if (!root) {
+          openModal({ title: '操作ログ', html: '', sheet: true, actions: [{ label: '閉じる', cls: 'btn-secondary' }] });
+          root = $('modal-root').lastChild;
+          root.setAttribute('data-kind', 'logs');
+        }
+        render();
+      }, function () {});
+    }
+    load(false);
+  }
+
+  // ------------------------------------------------------------------
+  // 起動（plan/05 §1.2）
+  // ------------------------------------------------------------------
+  function init() {
+    state.operatorId = storageGet('localStorage', STORAGE.OPERATOR) || '';
+    try {
+      var t = JSON.parse(storageGet('sessionStorage', STORAGE.TOKEN) || 'null');
+      if (t && t.operatorId === state.operatorId) { state.token = t.token; state.adminExpiresAt = Number(t.expiresAt) || null; } else state.token = null;
+    } catch (e) { state.token = null; }
+    $('operator-chip').addEventListener('click', function () { openOperatorPicker(false); });
+    $('admin-chip').addEventListener('click', onAdminChip);
+    setInterval(tickAdmin, 15000);
+    // 記録のカード（ホームの直近・履歴）を押すと詳細を開く
+    document.addEventListener('click', function (e) {
+      var card = e.target.closest && e.target.closest('.record-card[data-record]');
+      if (card) openRecord(card.getAttribute('data-record'));
+    });
+    document.addEventListener('keydown', function (e) {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.record-card[data-record]')) { e.preventDefault(); openRecord(e.target.getAttribute('data-record')); }
+    });
+    try { state.history.filter = JSON.parse(storageGet('sessionStorage', STORAGE.HISTORY_FILTER) || '{}') || {}; } catch (e) { state.history.filter = {}; }
+    state.history.page = Math.max(1, Number(storageGet('sessionStorage', STORAGE.HISTORY_PAGE)) || 1);
+    document.querySelectorAll('.tab-btn').forEach(function (b) {
+      b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
+    });
+    var m = String(location.hash || '').match(/tab=(\w+)/);
+    state.tab = m ? m[1] : 'home';
+    renderTabbar();
+    api('getInitialData').then(function (d) {
+      state.settings = d.settings; state.fuels = d.fuels; state.patterns = d.patterns;
+      state.operators = d.operators; state.products = d.products;
+      state.current = d.current; state.recent = d.recent; state.isAdmin = d.isAdmin;
+      if (!d.operatorValid) { state.operatorId = ''; state.token = null; }
+      if (!d.isAdmin && state.token) { state.token = null; state.adminExpiresAt = null; storageSet('sessionStorage', STORAGE.TOKEN, null); }
+      renderHeader();
+      switchTab(state.tab);
+      if (!d.operatorValid) openOperatorPicker(true);
+    }, function () { renderHeader(); });
+  }
+
+  init();
+</script>

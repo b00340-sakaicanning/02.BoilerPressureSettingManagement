@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ボイラ圧力設定管理</title>
+  <?!= include('css'); ?>
+</head>
+<body>
+  <!-- 画面構成は docs/02 §3、細部は plan/05 -->
+  <header class="app-header">
+    <h1 class="app-title" id="app-title">ボイラ圧力設定管理</h1>
+    <span class="badge badge-env" id="env-badge" hidden>開発</span>
+    <!-- タブ: スマホ・タブレットは画面の下に固定、PC（1024px〜）はヘッダの中に並べる（css.html） -->
+    <nav class="tabbar" id="tabbar" aria-label="画面の切り替え">
+      <button type="button" class="tab-btn" data-tab="home"></button>
+      <button type="button" class="tab-btn" data-tab="input"></button>
+      <button type="button" class="tab-btn" data-tab="history"></button>
+      <button type="button" class="tab-btn" data-tab="patterns"></button>
+    </nav>
+    <span class="header-spacer"></span>
+    <button type="button" class="operator-chip" id="operator-chip" aria-label="操作者を選ぶ"></button>
+    <button type="button" class="admin-chip" id="admin-chip" aria-label="管理者モード"></button>
+  </header>
+
+  <main class="app-main">
+    <section class="tab-panel" id="panel-home" data-tab="home"></section>
+    <section class="tab-panel" id="panel-input" data-tab="input" hidden></section>
+    <section class="tab-panel" id="panel-history" data-tab="history" hidden></section>
+    <section class="tab-panel" id="panel-patterns" data-tab="patterns" hidden></section>
+  </main>
+
+  <div id="modal-root"></div>
+  <div class="toast-area" id="toast-area" aria-live="polite"></div>
+  <div class="loading-overlay" id="loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
+
+  <?!= include('js'); ?>
+</body>
+</html>
