@@ -47,7 +47,7 @@ const SCENES = [
     await b.evalJs(clickText('.modal[data-kind="record"] .btn', '修正する'));
   }],
   ['10_patterns.png', 'パターン表', async (b) => { await open(b, 'tab=patterns&op=U01'); }],
-  ['11_pin.png', '管理者の暗証番号', async (b) => {
+  ['11_pin.png', '管理者認証（パスワード）', async (b) => {
     await open(b, 'tab=home&op=U01'); await b.evalJs(`sessionStorage.removeItem('boilerPressure.adminToken')`); await open(b, 'tab=home&op=U01');
     await b.click('#admin-chip');
   }],

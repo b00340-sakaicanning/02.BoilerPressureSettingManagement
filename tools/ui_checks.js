@@ -40,7 +40,8 @@ const LAYOUT_JS = `(function(){
   var over = document.documentElement.scrollWidth > window.innerWidth + 1;
   var small = [];
   document.querySelectorAll('.app-header button, .app-main button, .tabbar button, .modal button').forEach(function(el){
-    var r = el.getBoundingClientRect();
+    // 大きさは offsetWidth / offsetHeight で測る（ダイアログが拡大しながら出る途中の縮んだ大きさで測らないため）
+    var r = { width: el.offsetWidth, height: el.offsetHeight };
     if (r.width === 0 && r.height === 0) return;
     if (r.height < 44 || r.width < 44) small.push((el.id || el.className) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
   });
@@ -303,21 +304,27 @@ const CHECKS = [
     }
   },
   {
-    id: 'TC-AU-U1', name: '管理者: 鍵のボタンで暗証番号のダイアログ。違う番号はダイアログ内にエラー、正しい番号で管理者モード',
+    id: 'TC-AU-U1', name: '管理者: 鍵のボタンで管理者認証のダイアログ。2文字未満・違うパスワードはダイアログ内にエラー、正しいパスワードで管理者モード',
     run: async (b, t) => {
       await open(b, 'tab=home&op=U01');
       await b.evalJs(`sessionStorage.removeItem('boilerPressure.adminToken')`);
       await open(b, 'tab=home&op=U01');
       await b.click('#admin-chip');
       t.ok(await b.evalJs(`!!document.querySelector('.modal[data-kind="pin"]')`), 'ダイアログが出ない');
-      await b.evalJs(`document.getElementById('pin-input').value = '0000'`);
-      await b.evalJs(clickText('.modal[data-kind="pin"] .btn', '入る'));
+      await b.screenshot(path.join(OUT, 'au_pin_dialog.png'));
+      await b.evalJs(`document.getElementById('pin-input').value = 'b'`);
+      await b.evalJs(clickText('.modal[data-kind="pin"] .btn', '認証する'));
       await b.settle();
-      const err = await b.evalJs(`(document.getElementById('pin-error') || {}).innerText || ''`);
-      t.ok(err.indexOf('暗証番号が違います') >= 0, 'エラーの表示: ' + err);
+      let err = await b.evalJs(`(document.getElementById('pin-error') || {}).innerText || ''`);
+      t.ok(err.indexOf('2文字以上') >= 0, '2文字未満のエラー: ' + err);
+      await b.evalJs(`document.getElementById('pin-input').value = 'wrong'`);
+      await b.evalJs(clickText('.modal[data-kind="pin"] .btn', '認証する'));
+      await b.settle();
+      err = await b.evalJs(`(document.getElementById('pin-error') || {}).innerText || ''`);
+      t.ok(err.indexOf('パスワードが違います') >= 0, 'エラーの表示: ' + err);
       await b.screenshot(path.join(OUT, 'au_pin_error.png'));
-      await b.evalJs(`document.getElementById('pin-input').value = '123456'`);
-      await b.evalJs(clickText('.modal[data-kind="pin"] .btn', '入る'));
+      await b.evalJs(`document.getElementById('pin-input').value = 'boiler'`);
+      await b.evalJs(clickText('.modal[data-kind="pin"] .btn', '認証する'));
       await b.settle();
       const s = await b.evalJs(`({ modal: !!document.querySelector('.modal'), chip: document.getElementById('admin-chip').innerText, on: document.getElementById('admin-chip').classList.contains('is-admin'), toasts: window.__toasts.slice() })`);
       t.ok(!s.modal, 'ダイアログが閉じない');
@@ -326,7 +333,7 @@ const CHECKS = [
         return { inside: a.right <= window.innerWidth + 0.5, name: document.getElementById('operator-chip').innerText.trim(), fit: document.querySelector('#operator-chip > span').scrollWidth <= document.querySelector('#operator-chip > span').clientWidth + 1 }; })()`);
       t.ok(hdr.inside, '管理者のボタンが画面の右にはみ出す');
       t.ok(/^[A-Z]\(架空 .+?\)$/.test(hdr.name) && hdr.fit, '管理者モードでも名前が「記入称(氏名)」で全部見える: ' + hdr.name);
-      t.ok(s.toasts.some((x) => x.indexOf('管理者モードにしました') >= 0), 'トースト: ' + s.toasts.join(','));
+      t.ok(s.toasts.some((x) => x.indexOf('管理者モードにしました（30分）') >= 0), 'トースト（分数は AUTH_TOKEN_MINUTES）: ' + s.toasts.join(','));
       const lay = await b.evalJs(LAYOUT_JS);
       t.ok(!lay.over && !lay.small.length, 'はみ出し・44px: ' + lay.small.join(', '));
       await b.screenshot(path.join(OUT, 'au_admin_header.png'));
@@ -420,7 +427,7 @@ const CHECKS = [
     }
   },
   {
-    id: 'TC-AU-U2', name: '管理者: サーバー側でトークンが切れていたら、削除のときに暗証番号のダイアログが出て、入れると削除が続く',
+    id: 'TC-AU-U2', name: '管理者: サーバー側でトークンが切れていたら、削除のときに管理者認証のダイアログが出て、認証すると削除が続く',
     run: async (b, t) => {
       await open(b, 'tab=history&op=U01&admin=1');
       const id = await b.evalJs(findRecordJs(`r.setterId === 'U03' && r.source === 'アプリ' && !r.deleted`));
@@ -432,9 +439,9 @@ const CHECKS = [
       await b.evalJs(clickText('.modal[data-kind="record"] .btn', '削除する'));
       await b.evalJs(clickText('.modal .btn', '削除する'));
       await b.settle();
-      t.ok(await b.evalJs(`!!document.querySelector('.modal[data-kind="pin"]')`), '暗証番号のダイアログが出ない');
-      await b.evalJs(`document.getElementById('pin-input').value = '123456'`);
-      await b.evalJs(clickText('.modal[data-kind="pin"] .btn', '入る'));
+      t.ok(await b.evalJs(`!!document.querySelector('.modal[data-kind="pin"]')`), '管理者認証のダイアログが出ない');
+      await b.evalJs(`document.getElementById('pin-input').value = 'boiler'`);
+      await b.evalJs(clickText('.modal[data-kind="pin"] .btn', '認証する'));
       await b.settle();
       const s = await b.evalJs(`(function(){ var g = window.__GAS__.fns; g.resetExecutionCache_(); var r = g.readAll_('RECORDS').filter(function(x){ return x.recordId === ${JSON.stringify(id)}; })[0];
         return { deleted: r.deleted, toasts: window.__toasts.slice(), admin: document.getElementById('admin-chip').classList.contains('is-admin') }; })()`);
@@ -483,7 +490,7 @@ const CHECKS = [
     }
   },
   {
-    id: 'TC-UI-07', name: 'iPhone で画面が勝手に拡大しないよう、入力欄の文字が16px以上（入力・履歴の絞り込み・修正・暗証番号）',
+    id: 'TC-UI-07', name: 'iPhone で画面が勝手に拡大しないよう、入力欄の文字が16px以上（入力・履歴の絞り込み・修正・管理者パスワード）',
     run: async (b, t) => {
       const FONT_JS = `Array.prototype.filter.call(document.querySelectorAll('input, select, textarea'), function(el){ if (el.closest('.preview-banner')) return false; // プレビュー専用のバナーは除く
         var r = el.getBoundingClientRect(); return r.width > 0 && parseFloat(getComputedStyle(el).fontSize) < 16; }).map(function(el){ return (el.id || el.getAttribute('data-ed') || el.className) + ' ' + getComputedStyle(el).fontSize; })`;
@@ -505,7 +512,7 @@ const CHECKS = [
       await open(b, 'tab=home&op=U01');
       await b.click('#admin-chip');
       small = await b.evalJs(FONT_JS);
-      t.ok(!small.length, '暗証番号: ' + small.join(', '));
+      t.ok(!small.length, '管理者パスワード: ' + small.join(', '));
     }
   },
   {
@@ -659,6 +666,48 @@ const CHECKS = [
           if (w >= 1024) t.ok(s.headShown && s.headTop === s.headerBottom, '幅' + w + ': 項目名がヘッダの下に残らない（' + s.headTop + ' / ' + s.headerBottom + '）');
           await b.screenshot(path.join(OUT, 'ui13_scrolled_' + w + '.png'), { visible: true }); // スクロールした位置で見えている範囲を撮る
         }
+      } finally {
+        await b.setViewport(WIDTH, 812);
+      }
+    }
+  },
+  {
+    id: 'TC-UI-14', name: 'デザイン（plan/11）: フォントの読み込み、ヘッダのロゴ、管理者認証のダイアログの文言、PC のタブがセグメントの形・ヘッダがカード、トーストの色の帯',
+    run: async (b, t) => {
+      const html = fs.readFileSync(path.join(ROOT, 'gas_app', 'index.html'), 'utf8');
+      t.ok(/fonts\.googleapis\.com\/css2\?family=Inter.*Noto\+Sans\+JP.*Outfit/.test(html), 'index.html で Google Fonts（Inter・Noto Sans JP・Outfit）を読んでいない');
+      await open(b, 'tab=home&op=U01');
+      await b.evalJs(`sessionStorage.removeItem('boilerPressure.adminToken')`);
+      await open(b, 'tab=home&op=U01');
+      const h = await b.evalJs(`(function(){ var l = document.querySelector('.app-header .app-logo'), r = l ? l.getBoundingClientRect() : null;
+        return { logo: !!r && r.width >= 30 && getComputedStyle(l).backgroundColor === 'rgb(224, 242, 254)', font: getComputedStyle(document.body).fontFamily,
+          title: getComputedStyle(document.getElementById('app-title')).fontFamily }; })()`);
+      t.ok(h.logo, 'ヘッダに薄い青の四角のロゴが無い');
+      t.ok(/^"?Inter/.test(h.font) && /^"?Outfit/.test(h.title), 'フォントの指定: 本文 ' + h.font + ' / タイトル ' + h.title);
+      await b.click('#admin-chip');
+      const d = await b.evalJs(`(function(){ var m = document.querySelector('.modal[data-kind="pin"]'); if (!m) return null;
+        return { title: m.querySelector('.modal-title').innerText.trim(), icon: !!m.querySelector('.modal-icon.is-primary svg'),
+          ph: document.getElementById('pin-input').getAttribute('placeholder'), type: document.getElementById('pin-input').type,
+          numeric: document.getElementById('pin-input').getAttribute('inputmode'),
+          buttons: Array.prototype.map.call(m.querySelectorAll('.modal-actions .btn'), function(x){ return x.innerText.trim(); }) }; })()`);
+      t.ok(d && d.title === '管理者認証' && d.icon, '見出し・鍵のアイコン: ' + JSON.stringify(d));
+      t.ok(d && d.ph === '管理者パスワードを入力' && d.type === 'password' && !d.numeric, '入力欄（数字だけのキーボードにしない）: ' + JSON.stringify(d));
+      t.ok(d && JSON.stringify(d.buttons) === JSON.stringify(['キャンセル', '認証する']), 'ボタン: ' + JSON.stringify(d && d.buttons));
+      await b.evalJs(`document.querySelector('.modal[data-kind="pin"] [data-close]').click()`);
+      await b.evalJs(`toast('確認用のお知らせ', 'info')`);
+      const ts = await b.evalJs(`(function(){ var x = document.querySelector('.toast.toast-info'); return x ? getComputedStyle(x).borderLeftColor + ' ' + getComputedStyle(x).borderLeftWidth : ''; })()`);
+      t.ok(ts === 'rgb(2, 132, 199) 4px', 'トーストの左の色の帯: ' + ts);
+      try {
+        await b.setViewport(1280, 800);
+        await open(b, 'tab=history&op=U01');
+        const pc = await b.evalJs(`(function(){ var bar = document.getElementById('tabbar'), act = document.querySelector('.tab-btn.is-active'), inner = document.querySelector('.header-inner');
+          var cs = getComputedStyle(bar), ca = getComputedStyle(act), ci = getComputedStyle(inner);
+          return { seg: cs.borderTopWidth === '1px' && cs.backgroundColor === 'rgb(248, 250, 252)', active: ca.backgroundColor === 'rgb(255, 255, 255)' && ca.boxShadow !== 'none',
+            card: ci.borderTopLeftRadius === '16px' && ci.backgroundColor === 'rgb(255, 255, 255)', headerBg: getComputedStyle(document.querySelector('.app-header')).backgroundColor }; })()`);
+        t.ok(pc.seg && pc.active, 'PC のタブがセグメントの形でない: ' + JSON.stringify(pc));
+        t.ok(pc.card && pc.headerBg === 'rgb(248, 250, 252)', 'PC のヘッダがカードでない: ' + JSON.stringify(pc));
+        await b.evalJs(`(function(){ var pb = document.querySelector('.preview-banner'); if (pb) pb.style.display = 'none'; document.body.style.paddingTop = '0'; })()`);
+        await b.screenshot(path.join(OUT, 'ui14_pc_header.png'), { clip: { x: 0, y: 0, width: 1280, height: 300 } });
       } finally {
         await b.setViewport(WIDTH, 812);
       }

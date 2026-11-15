@@ -374,6 +374,17 @@
       removeAll: function (keys) { keys.forEach(function (k) { delete cacheStore[k]; }); }
     };
     const CacheService = { getScriptCache: function () { return cache; } };
+    // スクリプトプロパティ（管理者パスワード ADMIN_PASSWORD を置く）
+    const propStore = {};
+    const scriptProps = {
+      getProperty: function (k) { return Object.prototype.hasOwnProperty.call(propStore, k) ? propStore[k] : null; },
+      setProperty: function (k, v) { propStore[k] = String(v); return scriptProps; },
+      deleteProperty: function (k) { delete propStore[k]; return scriptProps; },
+      getProperties: function () { return Object.assign({}, propStore); },
+      setProperties: function (m) { Object.keys(m).forEach(function (k) { propStore[k] = String(m[k]); }); return scriptProps; },
+      getKeys: function () { return Object.keys(propStore); }
+    };
+    const PropertiesService = { getScriptProperties: function () { return scriptProps; } };
     let lockAvailable = true; // helpers.setLockAvailable(false) で、ロックが取れない状態を作る（TC-LK-02）
     const LockService = { getScriptLock: function () { return { tryLock: function () { return lockAvailable; }, waitLock: function () { if (!lockAvailable) throw new Error('Lock timeout'); }, releaseLock: function () {}, hasLock: function () { return lockAvailable; } }; } };
     const owner = options.ownerEmail || 'owner@example.com';
@@ -393,7 +404,7 @@
     const Logger = { log: function (m) { log(String(m)); } };
 
     return {
-      Utilities: Utilities, SpreadsheetApp: SpreadsheetApp, DriveApp: DriveApp, CacheService: CacheService, LockService: LockService,
+      Utilities: Utilities, SpreadsheetApp: SpreadsheetApp, DriveApp: DriveApp, CacheService: CacheService, LockService: LockService, PropertiesService: PropertiesService,
       Session: Session, ScriptApp: ScriptApp, HtmlService: HtmlService, Logger: Logger,
       // テスト・プレビュー用の補助
       helpers: {
@@ -411,7 +422,7 @@
         setLockAvailable: function (v) { lockAvailable = !!v; },
         sheetState: function (name) { const st = ssState.sheets.filter(function (s) { return s.name === name; })[0]; return st || null; },
         driveFiles: function () { return drive.files; },
-        exportState: function () { return JSON.stringify({ ss: ssState, drive: drive, cache: cacheStore, idSeq: idSeq }); },
+        exportState: function () { return JSON.stringify({ ss: ssState, drive: drive, cache: cacheStore, props: propStore, idSeq: idSeq }); },
         importState: function (json) {
           const s = JSON.parse(json);
           ssState.id = s.ss.id; ssState.name = s.ss.name; ssState.sheets = s.ss.sheets;
@@ -421,6 +432,8 @@
           Object.assign(drive.folders, s.drive.folders); Object.assign(drive.files, s.drive.files);
           Object.keys(cacheStore).forEach(function (k) { delete cacheStore[k]; });
           Object.assign(cacheStore, s.cache || {});
+          Object.keys(propStore).forEach(function (k) { delete propStore[k]; });
+          Object.assign(propStore, s.props || {});
           idSeq = s.idSeq || idSeq;
         },
         decodeBase64: function (b64) { return b64Decode(b64); },

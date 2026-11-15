@@ -6,9 +6,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>ボイラ圧力設定管理（ローカルプレビュー）</title>
+  <!-- フォント: ロッカーキー貸出管理と同じ（plan/11 C-1）。読めないときは css.html のシステムフォントで表示する -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
   <style>
   /* ボイラ圧力設定管理 — スタイル（css.html）
-     版: v0.8（2026/11/15。本番で「開発」バッジが消えない不具合を直した）
+     版: v0.9（2026/11/15。フェーズ9: ロッカーキー貸出管理・エネルギー使用量集計とデザインをそろえた。plan/11）
      デザイン方針: plan/05 §0（参考: 02.ロッカーキー貸出管理(Gemini)/gas_app/css.html） */
   :root {
     /* メイン（Sky） */
@@ -54,6 +58,9 @@
     /* 寸法 */
     --header-h: 56px;
     --tabbar-h: 64px;
+    /* フォント（index.html で Google Fonts を読む。読めないときは後ろのシステムフォント） */
+    --font-body: "Inter", "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, sans-serif;
+    --font-display: "Outfit", "Inter", "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, sans-serif;
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -63,7 +70,7 @@
     margin: 0;
     background: var(--bg-page);
     color: var(--text-main);
-    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+    font-family: var(--font-body);
     font-size: 16px;
     line-height: 1.6;
     /* 横のはみ出しを隠す。hidden だと GAS の枠の中でヘッダの固定（sticky）が効かなくなるため clip にする（hidden は古いブラウザ用） */
@@ -79,11 +86,15 @@
   /* ---------- ヘッダ ---------- */
   .app-header {
     position: sticky; top: 0; z-index: 100;
-    display: flex; align-items: center; gap: 8px;
-    height: var(--header-h); padding: 0 12px 0 16px;
+    height: var(--header-h);
     background: var(--bg-card); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm);
   }
-  .app-title { margin: 0; font-size: 1rem; font-weight: 700; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-inner { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 12px; }
+  /* ロゴ: 薄い青の角丸の四角に圧力計（ロッカーキー貸出管理の .logo-icon と同じ形） */
+  .app-logo { flex: none; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: var(--radius-md); background: var(--primary-light); color: var(--primary); }
+  .app-logo svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .app-logo circle { fill: currentColor; stroke: none; }
+  .app-title { margin: 0; min-width: 0; font-family: var(--font-display); font-size: 0.98rem; font-weight: 700; letter-spacing: -0.02em; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .header-spacer { flex: 1; }
   .operator-chip {
     display: inline-flex; align-items: center; gap: 6px;
@@ -92,6 +103,7 @@
     font-weight: 700; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .operator-chip:active { background: var(--border); }
+  .operator-chip, .admin-chip { transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
   .operator-chip.is-empty { color: var(--danger); border-color: var(--danger-light); background: var(--danger-light); }
 
   /* ---------- 本文 ---------- */
@@ -112,8 +124,9 @@
     flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
     min-height: 44px; border: none; background: none; color: var(--text-muted); font-size: 0.72rem; font-weight: 700; cursor: pointer;
   }
+  .tab-btn .icon { width: 56px; height: 30px; padding: 3px 16px; border-radius: var(--radius-full); transition: background-color 0.2s; }
   .tab-btn.is-active { color: var(--primary); }
-  .tab-btn.is-active .icon { stroke-width: 2.4; }
+  .tab-btn.is-active .icon { background: var(--primary-light); stroke-width: 2.4; }
 
   /* ---------- カード ---------- */
   .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 16px; }
@@ -152,6 +165,9 @@
   .pattern-products { font-size: 0.92rem; }
   .pattern-note { font-size: 0.8rem; color: var(--text-light); }
 
+  /* 圧力の大きな数字・パターンの番号（Outfit） */
+  .current-pressure, .current-pattern, .pattern-no, .pattern-main, .detail-pressure, .record-pressure, .stepper .input, .seg-item { font-family: var(--font-display); }
+
   /* 空・準備中 */
   .empty { padding: 28px 16px; text-align: center; color: var(--text-muted); }
 
@@ -170,12 +186,15 @@
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
     min-height: 48px; padding: 0 20px; border: 1px solid transparent; border-radius: var(--radius-md);
     font-weight: 700; cursor: pointer; text-decoration: none;
+    transition: transform 0.15s, box-shadow 0.2s, background-color 0.2s, border-color 0.2s, filter 0.2s;
   }
   .btn:active { filter: brightness(0.92); }
-  .btn:disabled { background: #cbd5e1; border-color: #cbd5e1; color: #fff; cursor: not-allowed; }
-  .btn-primary { background: var(--primary-gradient); color: #fff; box-shadow: var(--shadow-md); }
+  .btn:disabled { background: #cbd5e1; border-color: #cbd5e1; color: #fff; box-shadow: none; cursor: not-allowed; }
+  .btn-primary { background: var(--primary-gradient); color: #fff; box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2); }
   .btn-secondary { background: var(--bg-card); border-color: var(--border); color: var(--secondary); }
   .btn-danger { background: var(--danger); color: #fff; }
+  /* 削除の入口（詳細の「削除する」）は赤い枠の白いボタン。確認ダイアログの最後の「削除する」だけ .btn-danger で塗る */
+  .btn-danger-outline { background: var(--bg-card); border-color: #fecaca; color: var(--danger); }
   .btn-block { display: flex; width: 100%; }
   .btn-link { min-height: 44px; padding: 0 4px; border: none; background: none; color: var(--primary); font-weight: 700; cursor: pointer; }
   .mt-16 { margin-top: 16px; }
@@ -184,15 +203,24 @@
   .notice-warn { padding: 10px 12px; border: 1px solid #fde68a; border-radius: var(--radius-md); background: #fffbeb; color: #92400e; font-size: 0.9rem; }
 
   /* ---------- モーダル ---------- */
-  .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 23, 42, 0.6); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+  .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 23, 42, 0.6); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); animation: fadeIn 0.18s ease; }
   .modal.is-sheet { align-items: flex-end; padding: 0; }
-  .modal-box { width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto; background: var(--bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
-  .modal.is-sheet .modal-box { max-width: 640px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: env(safe-area-inset-bottom); }
-  .modal-head { display: flex; align-items: center; gap: 8px; padding: 14px 8px 6px 18px; }
-  .modal-title { margin: 0; flex: 1; font-size: 1.05rem; font-weight: 800; }
-  .modal-close { width: 44px; height: 44px; border: none; background: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-  .modal-body { padding: 6px 18px 12px; }
-  .modal-actions { display: flex; gap: 10px; padding: 8px 18px 18px; }
+  .modal-box { width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto; background: var(--bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); animation: scaleUp 0.18s ease; }
+  .modal.is-sheet .modal-box { max-width: 640px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: env(safe-area-inset-bottom); animation: slideUp 0.22s ease; }
+  .modal-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 10px 20px; border-bottom: 1px solid var(--border); }
+  .modal-title { margin: 0; flex: 1; font-size: 1.1rem; font-weight: 700; }
+  .modal-close { width: 44px; height: 44px; border: none; border-radius: var(--radius-md); background: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s; }
+  .modal-body { padding: 16px 20px 12px; }
+  .modal-actions { display: flex; gap: 10px; padding: 8px 20px 20px; }
+  /* 上の丸いアイコン（ロッカーキー貸出管理の .modal-confirm・.auth-icon-circle）。アイコン付きのダイアログは文を中央にそろえる */
+  .modal-icon { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; margin: 4px auto 14px; border-radius: 50%; background: var(--warning-light); color: var(--warning); }
+  .modal-icon .icon { width: 28px; height: 28px; }
+  .modal-icon.is-danger { background: var(--danger-light); color: var(--danger); }
+  .modal-icon.is-primary { background: var(--primary-light); color: var(--primary); }
+  .modal.has-icon .modal-body { text-align: center; }
+  @keyframes fadeIn { from { opacity: 0; } }
+  @keyframes scaleUp { from { opacity: 0; transform: scale(0.95); } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(24px); } }
   .modal-actions .btn { flex: 1; }
 
   /* 操作者を選ぶ */
@@ -303,7 +331,7 @@
   .app-header .operator-chip { flex-shrink: 0; max-width: 48vw; padding: 0 12px; font-size: 0.88rem; } /* 名前を優先して見せ、タイトルの方を縮める */
   .operator-chip > span { overflow: hidden; text-overflow: ellipsis; }
   .notice-info { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--secondary-light); color: var(--secondary); font-size: 0.88rem; }
-  .pin-input { text-align: center; font-size: 1.6rem; letter-spacing: 0.4em; }
+  .pin-input { text-align: center; font-size: 1.1rem; }
   .modal-actions .btn { padding: 0 10px; white-space: nowrap; }
   .toggle-btn.is-on { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
   .log-list { display: flex; flex-direction: column; gap: 8px; }
@@ -314,11 +342,28 @@
   .editor .field { margin-bottom: 16px; }
 
   /* ---------- トースト・ローディング ---------- */
+  /* トースト: 白地に左4pxの色の帯（成功=緑、注意=黄、お知らせ=青、エラー=赤）。スマホはタブバーのすぐ上、PC は右下 */
   .toast-area { position: fixed; left: 16px; right: 16px; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 12px); z-index: 1100; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
-  .toast { max-width: 440px; padding: 10px 18px; border-radius: var(--radius-full); background: var(--text-main); color: #fff; font-size: 0.9rem; font-weight: 700; box-shadow: var(--shadow-lg); }
-  .loading-overlay { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; background: rgba(248, 250, 252, 0.55); }
-  .loading-overlay.is-visible { display: flex; }
-  .spinner { width: 40px; height: 40px; border: 4px solid var(--primary-light); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .toast {
+    display: flex; align-items: center; gap: 8px; width: 100%; max-width: 400px; padding: 12px 16px;
+    border: 1px solid var(--border); border-left: 4px solid var(--success); border-radius: var(--radius-md);
+    background: var(--bg-card); color: var(--text-main); font-size: 0.92rem; font-weight: 700; box-shadow: var(--shadow-lg);
+    animation: toastIn 0.25s ease;
+  }
+  .toast .icon { width: 20px; height: 20px; color: var(--success); }
+  .toast-warning { border-left-color: var(--warning); }
+  .toast-warning .icon { color: var(--warning); }
+  .toast-info { border-left-color: var(--primary); }
+  .toast-info .icon { color: var(--primary); }
+  .toast-error { border-left-color: var(--danger); }
+  .toast-error .icon { color: var(--danger); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } }
+  /* ローディング: 白く半透明の覆いをぼかす。すぐ終わる通信でちらつかないよう、見えるのは少し遅らせる（押せなくなるのはすぐ） */
+  .loading-overlay { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.72); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+  .loading-overlay.is-visible { display: flex; animation: fadeIn 0.2s ease 0.15s both; }
+  .loading-box { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .spinner { width: 44px; height: 44px; border: 3px solid var(--primary-light); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .loading-text { margin: 0; font-size: 0.9rem; font-weight: 700; color: var(--text-muted); }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ==================================================================
@@ -326,8 +371,9 @@
      押せる部品 44px 以上、入力欄の文字 16px 以上はどの幅でも守る
      ================================================================== */
   @media (min-width: 768px) {
-    .app-header { padding: 0 20px 0 24px; }
-    .app-title { font-size: 1.1rem; }
+    .header-inner { gap: 10px; padding: 0 20px 0 24px; }
+    .app-logo { width: 38px; height: 38px; }
+    .app-title { font-size: 1.15rem; }
     .app-header .operator-chip { max-width: 240px; }
     .admin-word { display: inline; }
     .app-main { max-width: 960px; padding-left: 24px; padding-right: 24px; }
@@ -353,17 +399,27 @@
   }
 
   @media (min-width: 1024px) {
-    :root { --tabbar-h: 0px; }
-    .app-header { padding: 0 24px 0 32px; }
-    .app-header .operator-chip { max-width: 200px; }
-    .app-main { max-width: 1200px; padding: 24px 32px 40px; }
-    /* タブ: ヘッダの中（タイトルの右）に並べる */
-    .tabbar {
-      position: static; align-self: stretch; margin-left: 24px;
-      gap: 4px; height: auto; padding-bottom: 0; background: none; border-top: none; box-shadow: none;
+    :root { --tabbar-h: 0px; --header-h: 88px; }
+    /* ヘッダ: 灰色の帯の中に、角丸16pxの白いカードとして浮かせる（ロッカーキー貸出管理・エネルギー使用量集計と同じ形） */
+    .app-header { padding: 12px 32px 8px; background: var(--bg-page); border-bottom: none; box-shadow: none; }
+    .header-inner {
+      max-width: 1136px; margin: 0 auto; gap: 12px; padding: 0 12px 0 16px;
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
     }
-    .tab-btn { flex: none; flex-direction: row; gap: 6px; padding: 0 14px; font-size: 0.92rem; border-bottom: 3px solid transparent; }
-    .tab-btn.is-active { border-bottom-color: var(--primary); }
+    .app-logo { width: 40px; height: 40px; }
+    .app-logo svg { width: 24px; height: 24px; }
+    .app-title { font-size: 1.3rem; }
+    .app-header .operator-chip { max-width: 200px; }
+    .app-main { max-width: 1200px; padding: 16px 32px 40px; }
+    /* タブ: ヘッダの右に、セグメントの形（灰色の枠の中で、選んだタブを白く浮かせる。ロッカーの .app-tabs） */
+    .tabbar {
+      position: static; flex: none; gap: 2px; height: auto; padding: 4px;
+      background: var(--bg-page); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: none;
+    }
+    .tab-btn { flex: none; flex-direction: row; gap: 6px; padding: 0 14px; border-radius: var(--radius-sm); font-size: 0.9rem; transition: background-color 0.2s, color 0.2s; }
+    .tab-btn .icon { width: 18px; height: 18px; padding: 0; border-radius: 0; }
+    .tab-btn.is-active { background: var(--bg-card); box-shadow: var(--shadow-sm); }
+    .tab-btn.is-active .icon { background: none; }
     .home-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px; }
     .pattern-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     /* 入力: 左（パターン・燃料・圧力）｜右（日時・設定者・品種・備考） */
@@ -395,15 +451,27 @@
     /* ダイアログ: 下から出さずに画面の中央 */
     .modal.is-sheet { align-items: center; padding: 16px; }
     .modal.is-sheet .modal-box { max-width: 560px; border-radius: var(--radius-lg); padding-bottom: 0; }
-    .toast-area { bottom: 24px; }
+    .toast-area { left: auto; right: 24px; bottom: 24px; align-items: flex-end; }
+    .toast { width: auto; min-width: 280px; max-width: 360px; }
   }
 
   /* マウスで操作する端末: 乗せたときの色 */
   @media (hover: hover) and (pointer: fine) {
     .record-card[data-record]:hover { background: var(--primary-light); }
     .tab-btn:hover, .btn-link:hover { color: var(--primary); }
-    .btn-secondary:hover, .pager-btn:not(:disabled):not(.is-current):hover, .seg-item:hover, .operator-chip:hover, .admin-chip:not(.is-admin):hover { border-color: var(--primary); }
-    .btn-primary:hover { filter: brightness(1.05); }
+    .pager-btn:not(:disabled):not(.is-current):hover, .seg-item:hover, .operator-chip:hover, .admin-chip:not(.is-admin):hover { border-color: var(--primary); }
+    /* ボタン: 乗せると少し浮く（ロッカーキー貸出管理と同じ） */
+    .btn:not(:disabled):hover { transform: translateY(-1px); }
+    .btn-primary:not(:disabled):hover { box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); }
+    .btn-secondary:not(:disabled):hover { background: var(--secondary-light); border-color: #cbd5e1; }
+    .btn-danger:not(:disabled):hover { background: var(--danger-hover); }
+    .btn-danger-outline:not(:disabled):hover { background: var(--danger-light); }
+    .modal-close:hover { background: var(--secondary-light); }
+  }
+
+  /* 動きを減らす設定の端末では、アニメーションを止める */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
   }
 </style>
 
@@ -422,7 +490,7 @@
 </style>
 <div class="preview-banner">
   <span class="pv-badge">LOCAL MOCK PREVIEW</span>
-  <span class="pv-note">架空のデータで本物の Code.gs を動かしています。管理者暗証番号は 123456。データはこのブラウザに保存されます。</span>
+  <span class="pv-note">架空のデータで本物の Code.gs を動かしています。管理者パスワードは boiler。データはこのブラウザに保存されます。</span>
   <span style="flex:1"></span>
   <label>操作者: <select id="pv-operator" onchange="mockSwitch(this.value)"></select></label>
   <button type="button" id="pv-admin" onclick="mockAdmin()">管理者モード</button>
@@ -436,18 +504,23 @@
 </script>
   <!-- 画面構成は docs/02 §3、細部は plan/05 -->
   <header class="app-header">
-    <h1 class="app-title" id="app-title">ボイラ圧力設定管理</h1>
-    <span class="badge badge-env" id="env-badge" hidden>開発</span>
-    <!-- タブ: スマホ・タブレットは画面の下に固定、PC（1024px〜）はヘッダの中に並べる（css.html） -->
-    <nav class="tabbar" id="tabbar" aria-label="画面の切り替え">
-      <button type="button" class="tab-btn" data-tab="home"></button>
-      <button type="button" class="tab-btn" data-tab="input"></button>
-      <button type="button" class="tab-btn" data-tab="history"></button>
-      <button type="button" class="tab-btn" data-tab="patterns"></button>
-    </nav>
-    <span class="header-spacer"></span>
-    <button type="button" class="operator-chip" id="operator-chip" aria-label="操作者を選ぶ"></button>
-    <button type="button" class="admin-chip" id="admin-chip" aria-label="管理者モード"></button>
+    <div class="header-inner">
+      <span class="app-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4.6 18.5a9 9 0 1 1 14.8 0"/><path d="M12 14l4-4.5"/><circle cx="12" cy="14" r="1.6"/></svg>
+      </span>
+      <h1 class="app-title" id="app-title">ボイラ圧力設定管理</h1>
+      <span class="badge badge-env" id="env-badge" hidden>開発</span>
+      <span class="header-spacer"></span>
+      <!-- タブ: スマホ・タブレットは画面の下に固定、PC（1024px〜）はヘッダの右に並べる（css.html） -->
+      <nav class="tabbar" id="tabbar" aria-label="画面の切り替え">
+        <button type="button" class="tab-btn" data-tab="home"></button>
+        <button type="button" class="tab-btn" data-tab="input"></button>
+        <button type="button" class="tab-btn" data-tab="history"></button>
+        <button type="button" class="tab-btn" data-tab="patterns"></button>
+      </nav>
+      <button type="button" class="operator-chip" id="operator-chip" aria-label="操作者を選ぶ"></button>
+      <button type="button" class="admin-chip" id="admin-chip" aria-label="管理者モード"></button>
+    </div>
   </header>
 
   <main class="app-main">
@@ -459,7 +532,7 @@
 
   <div id="modal-root"></div>
   <div class="toast-area" id="toast-area" aria-live="polite"></div>
-  <div class="loading-overlay" id="loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
+  <div class="loading-overlay" id="loading-overlay" aria-hidden="true"><div class="loading-box"><div class="spinner"></div><p class="loading-text">通信中…</p></div></div>
 
   <script>
 /**
@@ -838,6 +911,17 @@
       removeAll: function (keys) { keys.forEach(function (k) { delete cacheStore[k]; }); }
     };
     const CacheService = { getScriptCache: function () { return cache; } };
+    // スクリプトプロパティ（管理者パスワード ADMIN_PASSWORD を置く）
+    const propStore = {};
+    const scriptProps = {
+      getProperty: function (k) { return Object.prototype.hasOwnProperty.call(propStore, k) ? propStore[k] : null; },
+      setProperty: function (k, v) { propStore[k] = String(v); return scriptProps; },
+      deleteProperty: function (k) { delete propStore[k]; return scriptProps; },
+      getProperties: function () { return Object.assign({}, propStore); },
+      setProperties: function (m) { Object.keys(m).forEach(function (k) { propStore[k] = String(m[k]); }); return scriptProps; },
+      getKeys: function () { return Object.keys(propStore); }
+    };
+    const PropertiesService = { getScriptProperties: function () { return scriptProps; } };
     let lockAvailable = true; // helpers.setLockAvailable(false) で、ロックが取れない状態を作る（TC-LK-02）
     const LockService = { getScriptLock: function () { return { tryLock: function () { return lockAvailable; }, waitLock: function () { if (!lockAvailable) throw new Error('Lock timeout'); }, releaseLock: function () {}, hasLock: function () { return lockAvailable; } }; } };
     const owner = options.ownerEmail || 'owner@example.com';
@@ -857,7 +941,7 @@
     const Logger = { log: function (m) { log(String(m)); } };
 
     return {
-      Utilities: Utilities, SpreadsheetApp: SpreadsheetApp, DriveApp: DriveApp, CacheService: CacheService, LockService: LockService,
+      Utilities: Utilities, SpreadsheetApp: SpreadsheetApp, DriveApp: DriveApp, CacheService: CacheService, LockService: LockService, PropertiesService: PropertiesService,
       Session: Session, ScriptApp: ScriptApp, HtmlService: HtmlService, Logger: Logger,
       // テスト・プレビュー用の補助
       helpers: {
@@ -875,7 +959,7 @@
         setLockAvailable: function (v) { lockAvailable = !!v; },
         sheetState: function (name) { const st = ssState.sheets.filter(function (s) { return s.name === name; })[0]; return st || null; },
         driveFiles: function () { return drive.files; },
-        exportState: function () { return JSON.stringify({ ss: ssState, drive: drive, cache: cacheStore, idSeq: idSeq }); },
+        exportState: function () { return JSON.stringify({ ss: ssState, drive: drive, cache: cacheStore, props: propStore, idSeq: idSeq }); },
         importState: function (json) {
           const s = JSON.parse(json);
           ssState.id = s.ss.id; ssState.name = s.ss.name; ssState.sheets = s.ss.sheets;
@@ -885,6 +969,8 @@
           Object.assign(drive.folders, s.drive.folders); Object.assign(drive.files, s.drive.files);
           Object.keys(cacheStore).forEach(function (k) { delete cacheStore[k]; });
           Object.assign(cacheStore, s.cache || {});
+          Object.keys(propStore).forEach(function (k) { delete propStore[k]; });
+          Object.assign(propStore, s.props || {});
           idSeq = s.idSeq || idSeq;
         },
         decodeBase64: function (b64) { return b64Decode(b64); },
@@ -902,12 +988,12 @@
 window.__GAS__ = (function () {
   var __fakes = createGasFakes({ spreadsheetName: 'ボイラ圧力設定DB_開発（プレビュー）', log: function (m) { console.log('[GAS] ' + m); } });
   var Utilities = __fakes.Utilities, SpreadsheetApp = __fakes.SpreadsheetApp, DriveApp = __fakes.DriveApp, CacheService = __fakes.CacheService,
-      LockService = __fakes.LockService, Session = __fakes.Session, ScriptApp = __fakes.ScriptApp, HtmlService = __fakes.HtmlService, Logger = __fakes.Logger;
+      LockService = __fakes.LockService, PropertiesService = __fakes.PropertiesService, Session = __fakes.Session, ScriptApp = __fakes.ScriptApp, HtmlService = __fakes.HtmlService, Logger = __fakes.Logger;
   var __FAKES__ = __fakes.helpers;
   // ===== gas_app/Code.gs =====
 /**
  * ボイラ圧力設定管理 — サーバー側（Code.gs）
- * 版: v1.2（2026/11/15。フェーズ8: 履歴のページ分け・品種の集約と並び）
+ * 版: v1.3（2026/11/15。フェーズ9: 管理者パスワードをスクリプトプロパティで管理）
  *
  * 仕様の正: docs/03_データ設計.md、docs/04_実装仕様.md（計画: plan/02 §2.1）
  * 反映: このファイルの中身を、GAS エディタの Code.gs に丸ごと貼り替える（clasp は使わない）
@@ -918,7 +1004,7 @@ window.__GAS__ = (function () {
  *   3 【Utils】      日時の整形、"HH:mm" の正規化、数値の丸め、ハッシュ、uuid
  *   4 【Repository】 withLock_、readAll_、findRowIndex_、appendRow_、updateRow_
  *   5 【Masters】    パターン・入力者・品種の取得と検索
- *   6 【Auth】       管理者暗証番号の照合、トークンの発行と確認
+ *   6 【Auth】       管理者パスワードの照合（スクリプトプロパティ）、トークンの発行と確認
  *   7 【Validator】  入力チェック
  *   8 【Records】    登録・修正・削除・元に戻す、採番、マスタとの差異
  *   9 【Query】      今の設定、直近の記録、履歴の検索
@@ -1096,17 +1182,19 @@ const SETTING_DEFAULTS = [
   ['RECENT_COUNT', '5', 'ホームに出す直近の件数'],
   ['FUTURE_WARN_MINUTES', '10', 'これより先の日時は確認ダイアログで注意する（分）'],
   ['AUTH_TOKEN_MINUTES', '30', '管理者トークンの有効時間（分）'],
-  ['PIN_MAX_FAILS', '5', '暗証番号を続けて間違えてよい回数'],
+  ['PIN_MAX_FAILS', '5', '管理者パスワードを続けて間違えてよい回数'],
   ['PIN_LOCK_MINUTES', '15', '間違えすぎたときのロック時間（分）'],
-  ['ADMIN_PIN_SALT', '', '管理者暗証番号の salt（メニュー「管理者暗証番号を設定」で作る。直接編集しない）'],
-  ['ADMIN_PIN_HASH', '', '管理者暗証番号のハッシュ（メニュー「管理者暗証番号を設定」で作る。直接編集しない）'],
   ['MIGRATION_FOLDER_ID', '', '移行 CSV を置くフォルダの ID'],
   ['BACKUP_FOLDER_ID', '', 'バックアップの保存先フォルダの ID'],
   ['BACKUP_KEEP_MONTHS', '12', 'バックアップを残す月数']
 ];
 
 /** 画面に返してよい設定キー（docs/03 §3.4） */
-const PUBLIC_SETTING_KEYS = ['APP_TITLE', 'ENV', 'PRESSURE_MIN', 'PRESSURE_MAX', 'NOTE_MAX_LENGTH', 'PAGE_SIZE', 'FUTURE_WARN_MINUTES'];
+const PUBLIC_SETTING_KEYS = ['APP_TITLE', 'ENV', 'PRESSURE_MIN', 'PRESSURE_MAX', 'NOTE_MAX_LENGTH', 'PAGE_SIZE', 'FUTURE_WARN_MINUTES', 'AUTH_TOKEN_MINUTES'];
+
+/** 管理者パスワードを置くスクリプトプロパティのキーと、最小の文字数（docs/04 第1部 §3.1、plan/11 C-3・C-4） */
+const ADMIN_PASSWORD_PROPERTY = 'ADMIN_PASSWORD';
+const ADMIN_PASSWORD_MIN_LENGTH = 2;
 
 /** 品種マスタの初期データ（D-20） */
 const PRODUCTS_INITIAL = ['小型(0.35〜1.0L)', '小型(水、スポーツ)', '1.5L(お茶)', '1.5L(水、スポーツ)', '2L(麦茶あり)', '2L(麦茶なし)', '2L(水、スポーツ)', 'その他'];
@@ -1472,17 +1560,16 @@ function operatorsById_() {
 }
 
 // =====================================================
-// 【Auth】 管理者暗証番号の照合、トークンの発行と確認
+// 【Auth】 管理者パスワードの照合、トークンの発行と確認
 // =====================================================
 
-/** 管理者暗証番号を設定する（docs/04 第1部 §3.1）。4〜8桁の数字。salt とハッシュだけを保存する */
-function setAdminPin_(pin) {
-  if (!/^\d{4,8}$/.test(String(pin))) throw AppError('VALIDATION', '暗証番号は4〜8桁の数字にしてください');
-  withLock_(function () {
-    const salt = uuid_();
-    setSetting_('ADMIN_PIN_SALT', salt);
-    setSetting_('ADMIN_PIN_HASH', sha256Hex_(salt + ':' + pin));
-  });
+/**
+ * 管理者パスワード（docs/04 第1部 §3.1）。スクリプトプロパティ ADMIN_PASSWORD の値（前後の空白は取る）。
+ * 持ち主が GAS エディタの「プロジェクトの設定 → スクリプト プロパティ」で入れる。無い・2文字未満なら ''（誰も入れない）
+ */
+function adminPassword_() {
+  const v = String(PropertiesService.getScriptProperties().getProperty(ADMIN_PASSWORD_PROPERTY) || '').trim();
+  return v.length >= ADMIN_PASSWORD_MIN_LENGTH ? v : '';
 }
 
 /**
@@ -1516,7 +1603,7 @@ function roleOf_(ctx) {
 /** 管理者の権限が要る操作の入口。トークンが無い・切れているときは AUTH_REQUIRED（need=admin） */
 function requireAdmin_(ctx) {
   verifyOperator_(ctx);
-  if (!verifyAdmin_(ctx)) throw AppError('AUTH_REQUIRED', '管理者の暗証番号を入れてください', null, { need: 'admin' });
+  if (!verifyAdmin_(ctx)) throw AppError('AUTH_REQUIRED', '管理者のパスワードを入れてください', null, { need: 'admin' });
 }
 
 /** トークンの中身（{ operatorId, expiresAt }）。無効なら null */
@@ -1527,10 +1614,11 @@ function adminTokenInfo_(ctx) {
 
 /**
  * 管理者の認証（docs/04 第1部 §3.2）。成功したらトークンを発行する（AUTH_TOKEN_MINUTES 分有効。延長しない）。
+ * パスワードはスクリプトプロパティ ADMIN_PASSWORD と比べる（未設定なら誰も入れず、失敗にも数えない）。
  * 失敗はアプリ全体で数え、PIN_MAX_FAILS 回続けて間違えたら PIN_LOCK_MINUTES 分ロックする（K-20）。
  * 戻り値 data: { token, expiresAt（ミリ秒） }
  */
-function authenticateAdmin(operatorId, pin) {
+function authenticateAdmin(operatorId, password) {
   return handle_(function () {
     const ctx = { operatorId: String(operatorId || ''), token: null };
     verifyOperator_(ctx);
@@ -1541,10 +1629,10 @@ function authenticateAdmin(operatorId, pin) {
       const minutes = Math.ceil((lockedUntil - now) / 60000);
       throw AppError('AUTH_LOCKED', '続けて間違えたため、' + minutes + '分間は入れません', null, { minutes: minutes });
     }
-    const salt = getSetting_('ADMIN_PIN_SALT'), hash = getSetting_('ADMIN_PIN_HASH');
-    if (!salt || !hash) throw AppError('AUTH_FAILED', '管理者暗証番号がまだ設定されていません（スプレッドシートのメニューで設定してください）');
+    const expected = adminPassword_();
+    if (!expected) throw AppError('AUTH_FAILED', '管理者パスワードが設定されていません（GAS エディタのスクリプト プロパティ ' + ADMIN_PASSWORD_PROPERTY + ' に' + ADMIN_PASSWORD_MIN_LENGTH + '文字以上で設定してください）');
     const lockMinutes = getSettingNumber_('PIN_LOCK_MINUTES');
-    if (sha256Hex_(salt + ':' + String(pin === undefined || pin === null ? '' : pin).trim()) !== hash) {
+    if (String(password === undefined || password === null ? '' : password).trim() !== expected) {
       const fails = Number(cache.get('pinfail') || 0) + 1;
       if (fails >= getSettingNumber_('PIN_MAX_FAILS')) {
         cache.put('pinlock', String(now + lockMinutes * 60000), lockMinutes * 60);
@@ -1554,7 +1642,7 @@ function authenticateAdmin(operatorId, pin) {
       }
       cache.put('pinfail', String(fails), lockMinutes * 60);
       writeLog_(ctx, ROLES.SETTER, 'AUTH_FAIL', '', { fails: fails });
-      throw AppError('AUTH_FAILED', '暗証番号が違います');
+      throw AppError('AUTH_FAILED', 'パスワードが違います');
     }
     cache.remove('pinfail');
     const minutes = getSettingNumber_('AUTH_TOKEN_MINUTES');
@@ -1743,7 +1831,7 @@ function checkVersion_(r, version) {
 
 /** 権限が足りないとき: トークンを持っていた（期限切れ）なら AUTH_REQUIRED（need=admin）、そうでなければ FORBIDDEN */
 function denyEdit_(ctx) {
-  if (ctx && ctx.token) throw AppError('AUTH_REQUIRED', '管理者の暗証番号を入れてください', null, { need: 'admin' });
+  if (ctx && ctx.token) throw AppError('AUTH_REQUIRED', '管理者のパスワードを入れてください', null, { need: 'admin' });
   throw AppError('FORBIDDEN', 'この記録を修正できるのは、アプリで登録した本人と管理者です');
 }
 
@@ -1959,7 +2047,7 @@ function getRecord(ctx, recordId) {
 const LOG_ACTIONS = {
   CREATE: '登録', UPDATE: '修正', DELETE: '削除', RESTORE: '削除の取り消し',
   AUTH_OK: '管理者認証', AUTH_FAIL: '管理者認証の失敗', AUTH_LOCK: '管理者認証のロック',
-  ADMIN_PIN_SET: '管理者暗証番号の設定', MIGRATE: '移行データ取込', BACKUP: 'バックアップ', SETUP: '初期設定'
+  ADMIN_PIN_SET: '管理者暗証番号の設定', /* 前の版（暗証番号をメニューで設定していたころ）のログの表示用 */ MIGRATE: '移行データ取込', BACKUP: 'バックアップ', SETUP: '初期設定'
 };
 
 /**
@@ -2294,7 +2382,6 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   const menu = ui.createMenu('ボイラ圧力設定')
     .addItem('初期設定（シートの作成）', 'menuSetup')
-    .addItem('管理者暗証番号を設定', 'menuSetAdminPin')
     .addItem('移行データ取込', 'menuImportMigration')
     .addSeparator()
     .addItem('バックアップのトリガーを設定', 'menuSetupBackupTrigger')
@@ -2354,7 +2441,9 @@ function menuSetup() {
     return '初期設定が終わりました。\n' +
       '作成したシート: ' + (created.length ? created.join('、') : 'なし') + '\n' +
       '追加した見出し: ' + (addedHeaders.length ? addedHeaders.join(' / ') : 'なし') + '\n' +
-      '追加した設定: ' + settingsAdded + '件、追加した品種: ' + productsAdded + '件';
+      '追加した設定: ' + settingsAdded + '件、追加した品種: ' + productsAdded + '件' +
+      (adminPassword_() ? '' : '\n\n管理者パスワードが未設定です。GAS エディタの「プロジェクトの設定 → スクリプト プロパティ」で、' +
+        ADMIN_PASSWORD_PROPERTY + ' に' + ADMIN_PASSWORD_MIN_LENGTH + '文字以上のパスワードを設定してください');
   });
   alert_(summary);
   return summary;
@@ -2408,27 +2497,10 @@ function ensureInitialProducts_() {
   return PRODUCTS_INITIAL.length;
 }
 
-/** メニュー「管理者暗証番号を設定」（docs/04 第1部 §3.1）。4〜8桁の数字を2回入れる */
-function menuSetAdminPin() {
-  resetExecutionCache_();
-  const ui = SpreadsheetApp.getUi();
-  const r1 = ui.prompt('管理者暗証番号の設定', '新しい暗証番号（4〜8桁の数字）を入れてください', ui.ButtonSet.OK_CANCEL);
-  if (r1.getSelectedButton() !== ui.Button.OK) { alert_('中止しました'); return '中止'; }
-  const pin = String(r1.getResponseText()).trim();
-  if (!/^\d{4,8}$/.test(pin)) { alert_('暗証番号は4〜8桁の数字にしてください。設定していません'); return '形式エラー'; }
-  const r2 = ui.prompt('管理者暗証番号の設定', '確認のため、もう一度入れてください', ui.ButtonSet.OK_CANCEL);
-  if (r2.getSelectedButton() !== ui.Button.OK) { alert_('中止しました'); return '中止'; }
-  if (String(r2.getResponseText()).trim() !== pin) { alert_('1回目と2回目が違います。設定していません'); return '不一致'; }
-  setAdminPin_(pin);
-  writeLog_(null, ROLES.SYSTEM, 'ADMIN_PIN_SET', '', {});
-  alert_('管理者暗証番号を設定しました');
-  return '設定';
-}
-
   // ===== gas_app/Tests.gs =====
 /**
  * ボイラ圧力設定管理 — テスト（Tests.gs）
- * 版: v1.1（2026/11/15。フェーズ8: 履歴のページ分け・品種の集約）
+ * 版: v1.2（2026/11/15。フェーズ9: 管理者パスワードをスクリプトプロパティで管理）
  *
  * - 開発環境の GAS プロジェクトだけに貼る（本番には貼らない。plan/02 §3.1）
  * - Code.gs の関数を呼ぶだけ。Code.gs からこのファイルは呼ばない
@@ -2470,7 +2542,7 @@ function testList_() {
     ['TC-DL-08', 'writeLog_ で操作ログに1行足される', test_DL08_, 'gas'],
     ['TC-DL-09', '日付・数値・真偽値の変換（parseDate_、toDate_、round2_、toBool_、calcMasterDiff_）', test_DL09_, 'pure'],
     ['TC-LK-02', 'ロックが取れないときは BUSY', test_LK02_, 'gas'],
-    ['TC-AU-07', '管理者暗証番号は salt とハッシュだけが保存される', test_AU07_, 'gas'],
+    ['TC-AU-07', '管理者パスワードはスクリプトプロパティから読む。未設定・1文字なら誰も入れない。シートに残らない', test_AU07_, 'gas'],
     ['TC-MG-07', '移行 CSV（試験用）を確かめると、変更日時の順に並び記録ID が振られる', test_MG07_, 'gas'],
     ['TC-MG-08', '移行 CSV（試験用）のマスタとの差異と照合の集計', test_MG08_, 'gas'],
     ['TC-MG-09', '移行データがあるときに取込をもう一度実行すると止まる', test_MG09_, 'gas'],
@@ -2498,9 +2570,9 @@ function testList_() {
     ['TC-LS-07', '管理者が includeDeleted=true にすると削除済みも出る', test_LS07_, 'gas'],
     ['TC-LS-08', '削除済みの記録は設定者には NOT_FOUND、管理者には見える。getRecord の can〜', test_LS08_, 'gas'],
     ['TC-LS-09', 'HISTORY_PAGE_SIZE: 設定した件数で分ける。5〜100 の整数でなければ 20', test_LS09_, 'gas'],
-    ['TC-AU-01', '正しい暗証番号でトークンが返り、操作ログ「管理者認証」。checkAdmin が true', test_AU01_, 'gas'],
-    ['TC-AU-02', '違う暗証番号は AUTH_FAILED、操作ログ「管理者認証の失敗」', test_AU02_, 'gas'],
-    ['TC-AU-03', '5回続けて間違えると AUTH_LOCKED。正しい番号でもロック中は入れない', test_AU03_, 'gas'],
+    ['TC-AU-01', '正しいパスワードでトークンが返り、操作ログ「管理者認証」。checkAdmin が true', test_AU01_, 'gas'],
+    ['TC-AU-02', '違うパスワードは AUTH_FAILED、操作ログ「管理者認証の失敗」', test_AU02_, 'gas'],
+    ['TC-AU-03', '5回続けて間違えると AUTH_LOCKED。正しいパスワードでもロック中は入れない', test_AU03_, 'gas'],
     ['TC-AU-04', '期限切れのトークンで削除すると AUTH_REQUIRED（need=admin）', test_AU04_, 'gas'],
     ['TC-AU-05', 'トークンを発行した人と違う操作者では AUTH_REQUIRED', test_AU05_, 'gas'],
     ['TC-AU-06', 'logoutAdmin のあとは AUTH_REQUIRED', test_AU06_, 'gas'],
@@ -2741,39 +2813,35 @@ function test_LK02_() {
 }
 
 function test_AU07_() {
-  if (!hasFakes_()) throw skip_('ダイアログへの入力はローカル（フェイク）でだけ再現できます');
-  const keepSalt = getSetting_('ADMIN_PIN_SALT'), keepHash = getSetting_('ADMIN_PIN_HASH');
-  try {
-    __FAKES__.queuePrompt(['4826', '4826']);
-    assertEq_(menuSetAdminPin(), '設定');
-    resetExecutionCache_();
-    const salt = getSetting_('ADMIN_PIN_SALT'), hash = getSetting_('ADMIN_PIN_HASH');
-    assertTrue_(salt.length > 0, 'salt');
-    assertTrue_(/^[0-9a-f]{64}$/.test(hash), 'ハッシュの形');
-    assertEq_(hash, sha256Hex_(salt + ':4826'), 'ハッシュの値');
-    // 平文の暗証番号がどのセルにも残っていない（uuid などに数字の並びが偶然含まれることはあるので、完全一致で見る）
+  const ctx = testCtx_();
+  // 未設定・1文字のときは誰も入れず、失敗にも数えない
+  withTestPassword_(null, function () {
+    const res = authenticateAdmin(ctx.operatorId, 'anything');
+    assertEq_([res.ok, res.error.code], [false, 'AUTH_FAILED'], '未設定');
+    assertTrue_(res.error.message.indexOf('ADMIN_PASSWORD') >= 0, '設定のしかたを案内する: ' + res.error.message);
+    assertEq_(CacheService.getScriptCache().get('pinfail'), null, '未設定は失敗に数えない');
+  });
+  withTestPassword_('x', function () {
+    assertEq_(authenticateAdmin(ctx.operatorId, 'x').error.code, 'AUTH_FAILED', '1文字のパスワードは使えない');
+  });
+  // 2文字以上なら文字の種類は自由。前後の空白は無視する
+  withTestPassword_(' Ab#1 ', function () {
+    const res = authenticateAdmin(ctx.operatorId, 'Ab#1 ');
+    assertTrue_(res.ok, '前後の空白は無視: ' + JSON.stringify(res.error));
+    logoutAdmin({ operatorId: ctx.operatorId, token: res.data.token });
+    assertEq_(authenticateAdmin(ctx.operatorId, 'ab#1').error.code, 'AUTH_FAILED', '大文字と小文字は区別する');
+    // どのシートにもパスワードが残っていない
     getSpreadsheet_().getSheets().forEach(function (sh) {
       if (!sh.getLastRow()) return;
       sh.getDataRange().getValues().forEach(function (row) {
-        row.forEach(function (v) { assertTrue_(String(v).trim() !== '4826', sh.getName() + ' に暗証番号の平文があります'); });
+        row.forEach(function (v) { assertTrue_(String(v).indexOf('Ab#1') < 0, sh.getName() + ' にパスワードがあります'); });
       });
     });
-    const pinLog = readAll_('LOGS').filter(function (l) { return l.action === '管理者暗証番号の設定'; }).slice(-1)[0];
-    assertTrue_(pinLog, '操作ログ「管理者暗証番号の設定」がありません');
-    assertEq_(pinLog.detail, '{}', 'ログの内容に暗証番号を書かない');
-    // 1回目と2回目が違えば、変わらない
-    __FAKES__.queuePrompt(['1111', '2222']);
-    assertEq_(menuSetAdminPin(), '不一致');
-    resetExecutionCache_();
-    assertEq_(getSetting_('ADMIN_PIN_HASH'), hash, '不一致のときはハッシュが変わらない');
-    // 形が違えば設定しない
-    __FAKES__.queuePrompt(['12a4']);
-    assertEq_(menuSetAdminPin(), '形式エラー');
-  } finally {
-    setSetting_('ADMIN_PIN_SALT', keepSalt);
-    setSetting_('ADMIN_PIN_HASH', keepHash);
-    resetExecutionCache_();
-  }
+  });
+  // 前の版の設定キーとメニューは無い
+  assertTrue_(!SETTING_DEFAULTS.some(function (d) { return /^ADMIN_PIN_/.test(d[0]); }), '設定の初期値に ADMIN_PIN_* が残っている');
+  assertTrue_(typeof menuSetAdminPin === 'undefined' && typeof setAdminPin_ === 'undefined', '暗証番号の設定の関数が残っている');
+  assertTrue_(PUBLIC_SETTING_KEYS.indexOf('AUTH_TOKEN_MINUTES') >= 0, '画面に有効時間を返す');
 }
 
 // ---------------------------------------------------------------------
@@ -3286,23 +3354,26 @@ function test_LS08_() {
 }
 
 // ---------------------------------------------------------------------
-// TC-AU 管理者の認証（暗証番号はテストの中で設定し、終わったら元に戻す）
+// TC-AU 管理者の認証（パスワードはテストの中でスクリプトプロパティに入れ、終わったら元に戻す）
 // ---------------------------------------------------------------------
 
-/** テスト用の暗証番号を設定して fn を実行し、設定・失敗回数・ロックを元に戻す */
-function withTestPin_(pin, fn) {
-  const keepSalt = getSetting_('ADMIN_PIN_SALT'), keepHash = getSetting_('ADMIN_PIN_HASH');
+/**
+ * テスト用の管理者パスワードをスクリプトプロパティ ADMIN_PASSWORD に入れて fn を実行し、プロパティ・失敗回数・ロックを元に戻す。
+ * password が null なら、プロパティを消した（未設定の）状態で実行する。GAS 上で実行しても、元のパスワードに戻る
+ */
+function withTestPassword_(password, fn) {
+  const props = PropertiesService.getScriptProperties();
+  const keep = props.getProperty(ADMIN_PASSWORD_PROPERTY);
   const cache = CacheService.getScriptCache();
   try {
     cache.remove('pinfail'); cache.remove('pinlock');
-    setAdminPin_(pin);
-    resetExecutionCache_();
+    if (password === null) props.deleteProperty(ADMIN_PASSWORD_PROPERTY);
+    else props.setProperty(ADMIN_PASSWORD_PROPERTY, password);
     return fn();
   } finally {
     cache.remove('pinfail'); cache.remove('pinlock');
-    setSetting_('ADMIN_PIN_SALT', keepSalt);
-    setSetting_('ADMIN_PIN_HASH', keepHash);
-    resetExecutionCache_();
+    if (keep === null) props.deleteProperty(ADMIN_PASSWORD_PROPERTY);
+    else props.setProperty(ADMIN_PASSWORD_PROPERTY, keep);
   }
 }
 
@@ -3310,7 +3381,7 @@ function lastLog_() { resetExecutionCache_(); return readAll_('LOGS').slice(-1)[
 
 function test_AU01_() {
   const ctx = testCtx_();
-  withTestPin_('2468', function () {
+  withTestPassword_('2468', function () {
     const res = authenticateAdmin(ctx.operatorId, '2468');
     assertTrue_(res.ok, JSON.stringify(res.error));
     assertTrue_(res.data.token && res.data.expiresAt > new Date().getTime(), 'token と expiresAt');
@@ -3326,7 +3397,7 @@ function test_AU01_() {
 
 function test_AU02_() {
   const ctx = testCtx_();
-  withTestPin_('2468', function () {
+  withTestPassword_('2468', function () {
     const res = authenticateAdmin(ctx.operatorId, '1357');
     assertEq_([res.ok, res.error.code], [false, 'AUTH_FAILED']);
     assertEq_(lastLog_().action, '管理者認証の失敗', '操作ログ');
@@ -3336,7 +3407,7 @@ function test_AU02_() {
 
 function test_AU03_() {
   const ctx = testCtx_();
-  withTestPin_('2468', function () {
+  withTestPassword_('2468', function () {
     const max = getSettingNumber_('PIN_MAX_FAILS');
     let res;
     for (let i = 1; i <= max; i++) {
@@ -3732,10 +3803,10 @@ function seedDevData() {
 
 function menuSeedDevData() { alert_(seedDevData()); }
 
-/** ローカルプレビュー用に管理者暗証番号を設定する（tools/preview_mock.js から呼ぶ） */
-function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
+/** ローカルプレビュー用に管理者パスワードを設定する（tools/preview_mock.js から呼ぶ） */
+function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProperties().setProperty(ADMIN_PASSWORD_PROPERTY, password); return 'ok'; }
 
-  return { fakes: __fakes, fns: { AppError: AppError, doGet: doGet, include: include, handle_: handle_, getInitialData: getInitialData, getHome: getHome, getSettings_: getSettings_, getSetting_: getSetting_, getSettingNumber_: getSettingNumber_, setSetting_: setSetting_, resetExecutionCache_: resetExecutionCache_, alert_: alert_, pad2_: pad2_, isDate_: isDate_, formatDate_: formatDate_, formatDateTime_: formatDateTime_, formatYmd_: formatYmd_, parseDate_: parseDate_, toDate_: toDate_, normalizeTime_: normalizeTime_, combineDateTime_: combineDateTime_, round2_: round2_, toHundredths_: toHundredths_, toBool_: toBool_, sha256Hex_: sha256Hex_, uuid_: uuid_, columnLetter_: columnLetter_, getSpreadsheet_: getSpreadsheet_, getSheet_: getSheet_, withLock_: withLock_, headerInfo_: headerInfo_, columnType_: columnType_, fromCell_: fromCell_, toCell_: toCell_, readAll_: readAll_, findRowIndex_: findRowIndex_, objectToRow_: objectToRow_, rowFormats_: rowFormats_, appendRows_: appendRows_, appendRow_: appendRow_, updateRow_: updateRow_, replaceAllRows_: replaceAllRows_, bySortOrder_: bySortOrder_, getPatterns_: getPatterns_, getOperators_: getOperators_, getProducts_: getProducts_, findPattern_: findPattern_, findOperator_: findOperator_, findOperatorByShortName_: findOperatorByShortName_, findProduct_: findProduct_, operatorsById_: operatorsById_, setAdminPin_: setAdminPin_, verifyOperator_: verifyOperator_, verifyAdmin_: verifyAdmin_, roleOf_: roleOf_, requireAdmin_: requireAdmin_, adminTokenInfo_: adminTokenInfo_, authenticateAdmin: authenticateAdmin, checkAdmin: checkAdmin, logoutAdmin: logoutAdmin, pickRecordInput_: pickRecordInput_, validateRecord_: validateRecord_, formatRecordId_: formatRecordId_, nextSeqFromIds_: nextSeqFromIds_, nextRecordId_: nextRecordId_, calcMasterDiff_: calcMasterDiff_, createRecord: createRecord, findRecordForWrite_: findRecordForWrite_, checkVersion_: checkVersion_, denyEdit_: denyEdit_, updateRecord: updateRecord, deleteRecord: deleteRecord, restoreRecord: restoreRecord, publicSettings_: publicSettings_, changedAtMs_: changedAtMs_, sortRecords_: sortRecords_, activeRecordsSorted_: activeRecordsSorted_, operatorName_: operatorName_, toClientRecord_: toClientRecord_, historyPageSize_: historyPageSize_, listRecords: listRecords, recordPermissions_: recordPermissions_, getRecord: getRecord, writeLog_: writeLog_, readLogs_: readLogs_, listOperationLogs: listOperationLogs, csvToObjects_: csvToObjects_, readMigrationFiles_: readMigrationFiles_, isTwoDecimals_: isTwoDecimals_, buildMigration_: buildMigration_, migrationCheck_: migrationCheck_, formatMigrationCheck_: formatMigrationCheck_, importMigration_: importMigration_, menuImportMigration: menuImportMigration, backupNow_: backupNow_, runMonthlyBackup: runMonthlyBackup, menuBackupNow: menuBackupNow, menuSetupBackupTrigger: menuSetupBackupTrigger, onOpen: onOpen, menuSetup: menuSetup, setupRecordsSheetView_: setupRecordsSheetView_, ensureSettings_: ensureSettings_, ensureInitialProducts_: ensureInitialProducts_, menuSetAdminPin: menuSetAdminPin, assertEq_: assertEq_, assertTrue_: assertTrue_, assertThrows_: assertThrows_, testList_: testList_, runAllTests: runAllTests, menuRunAllTests: menuRunAllTests, skip_: skip_, hasFakes_: hasFakes_, sheetCounts_: sheetCounts_, test_DL01_: test_DL01_, test_DL02_: test_DL02_, test_DL03_: test_DL03_, test_DL04_: test_DL04_, test_DL05_: test_DL05_, test_DL06_: test_DL06_, test_DL07_: test_DL07_, test_DL08_: test_DL08_, test_DL09_: test_DL09_, test_LK02_: test_LK02_, test_AU07_: test_AU07_, migrationFixture_: migrationFixture_, test_MG07_: test_MG07_, test_MG08_: test_MG08_, test_MG09_: test_MG09_, test_MG10_: test_MG10_, test_MG11_: test_MG11_, testCtx_: testCtx_, addTestRecord_: addTestRecord_, removeTestRecords_: removeTestRecords_, test_QY01_: test_QY01_, test_QY02_: test_QY02_, test_QY03_: test_QY03_, test_QY04_: test_QY04_, validPayload_: validPayload_, removeRecordsByIds_: removeRecordsByIds_, expectValidation_: expectValidation_, test_IN01_: test_IN01_, test_IN03_: test_IN03_, test_IN04_: test_IN04_, test_IN05_: test_IN05_, test_IN06_: test_IN06_, test_IN07_: test_IN07_, test_IN08_: test_IN08_, test_IN10_: test_IN10_, test_IN12_: test_IN12_, adminCtxForTest_: adminCtxForTest_, dropTestToken_: dropTestToken_, expectedRows_: expectedRows_, ids_: ids_, test_LS01_: test_LS01_, test_LS02_: test_LS02_, test_LS09_: test_LS09_, test_LS03_: test_LS03_, test_LS04_: test_LS04_, test_LS05_: test_LS05_, test_LS06_: test_LS06_, test_LS07_: test_LS07_, test_LS08_: test_LS08_, withTestPin_: withTestPin_, lastLog_: lastLog_, test_AU01_: test_AU01_, test_AU02_: test_AU02_, test_AU03_: test_AU03_, test_AU04_: test_AU04_, test_AU05_: test_AU05_, test_AU06_: test_AU06_, withTestRecord_: withTestRecord_, recordById_: recordById_, test_ED01_: test_ED01_, test_ED02_: test_ED02_, test_ED03_: test_ED03_, test_ED04_: test_ED04_, test_ED05_: test_ED05_, test_ED06_: test_ED06_, test_ED07_: test_ED07_, test_ED08_: test_ED08_, test_ED09_: test_ED09_, test_ED10_: test_ED10_, test_LK01_: test_LK01_, test_LG01_: test_LG01_, withBackupFolder_: withBackupFolder_, filesIn_: filesIn_, test_BK01_: test_BK01_, test_BK02_: test_BK02_, test_BK03_: test_BK03_, test_ST01_: test_ST01_, test_ST02_: test_ST02_, test_ST03_: test_ST03_, seedDevData: seedDevData, menuSeedDevData: menuSeedDevData, setAdminPinForPreview_: setAdminPinForPreview_ } };
+  return { fakes: __fakes, fns: { AppError: AppError, doGet: doGet, include: include, handle_: handle_, getInitialData: getInitialData, getHome: getHome, getSettings_: getSettings_, getSetting_: getSetting_, getSettingNumber_: getSettingNumber_, setSetting_: setSetting_, resetExecutionCache_: resetExecutionCache_, alert_: alert_, pad2_: pad2_, isDate_: isDate_, formatDate_: formatDate_, formatDateTime_: formatDateTime_, formatYmd_: formatYmd_, parseDate_: parseDate_, toDate_: toDate_, normalizeTime_: normalizeTime_, combineDateTime_: combineDateTime_, round2_: round2_, toHundredths_: toHundredths_, toBool_: toBool_, sha256Hex_: sha256Hex_, uuid_: uuid_, columnLetter_: columnLetter_, getSpreadsheet_: getSpreadsheet_, getSheet_: getSheet_, withLock_: withLock_, headerInfo_: headerInfo_, columnType_: columnType_, fromCell_: fromCell_, toCell_: toCell_, readAll_: readAll_, findRowIndex_: findRowIndex_, objectToRow_: objectToRow_, rowFormats_: rowFormats_, appendRows_: appendRows_, appendRow_: appendRow_, updateRow_: updateRow_, replaceAllRows_: replaceAllRows_, bySortOrder_: bySortOrder_, getPatterns_: getPatterns_, getOperators_: getOperators_, getProducts_: getProducts_, findPattern_: findPattern_, findOperator_: findOperator_, findOperatorByShortName_: findOperatorByShortName_, findProduct_: findProduct_, operatorsById_: operatorsById_, adminPassword_: adminPassword_, verifyOperator_: verifyOperator_, verifyAdmin_: verifyAdmin_, roleOf_: roleOf_, requireAdmin_: requireAdmin_, adminTokenInfo_: adminTokenInfo_, authenticateAdmin: authenticateAdmin, checkAdmin: checkAdmin, logoutAdmin: logoutAdmin, pickRecordInput_: pickRecordInput_, validateRecord_: validateRecord_, formatRecordId_: formatRecordId_, nextSeqFromIds_: nextSeqFromIds_, nextRecordId_: nextRecordId_, calcMasterDiff_: calcMasterDiff_, createRecord: createRecord, findRecordForWrite_: findRecordForWrite_, checkVersion_: checkVersion_, denyEdit_: denyEdit_, updateRecord: updateRecord, deleteRecord: deleteRecord, restoreRecord: restoreRecord, publicSettings_: publicSettings_, changedAtMs_: changedAtMs_, sortRecords_: sortRecords_, activeRecordsSorted_: activeRecordsSorted_, operatorName_: operatorName_, toClientRecord_: toClientRecord_, historyPageSize_: historyPageSize_, listRecords: listRecords, recordPermissions_: recordPermissions_, getRecord: getRecord, writeLog_: writeLog_, readLogs_: readLogs_, listOperationLogs: listOperationLogs, csvToObjects_: csvToObjects_, readMigrationFiles_: readMigrationFiles_, isTwoDecimals_: isTwoDecimals_, buildMigration_: buildMigration_, migrationCheck_: migrationCheck_, formatMigrationCheck_: formatMigrationCheck_, importMigration_: importMigration_, menuImportMigration: menuImportMigration, backupNow_: backupNow_, runMonthlyBackup: runMonthlyBackup, menuBackupNow: menuBackupNow, menuSetupBackupTrigger: menuSetupBackupTrigger, onOpen: onOpen, menuSetup: menuSetup, setupRecordsSheetView_: setupRecordsSheetView_, ensureSettings_: ensureSettings_, ensureInitialProducts_: ensureInitialProducts_, assertEq_: assertEq_, assertTrue_: assertTrue_, assertThrows_: assertThrows_, testList_: testList_, runAllTests: runAllTests, menuRunAllTests: menuRunAllTests, skip_: skip_, hasFakes_: hasFakes_, sheetCounts_: sheetCounts_, test_DL01_: test_DL01_, test_DL02_: test_DL02_, test_DL03_: test_DL03_, test_DL04_: test_DL04_, test_DL05_: test_DL05_, test_DL06_: test_DL06_, test_DL07_: test_DL07_, test_DL08_: test_DL08_, test_DL09_: test_DL09_, test_LK02_: test_LK02_, test_AU07_: test_AU07_, migrationFixture_: migrationFixture_, test_MG07_: test_MG07_, test_MG08_: test_MG08_, test_MG09_: test_MG09_, test_MG10_: test_MG10_, test_MG11_: test_MG11_, testCtx_: testCtx_, addTestRecord_: addTestRecord_, removeTestRecords_: removeTestRecords_, test_QY01_: test_QY01_, test_QY02_: test_QY02_, test_QY03_: test_QY03_, test_QY04_: test_QY04_, validPayload_: validPayload_, removeRecordsByIds_: removeRecordsByIds_, expectValidation_: expectValidation_, test_IN01_: test_IN01_, test_IN03_: test_IN03_, test_IN04_: test_IN04_, test_IN05_: test_IN05_, test_IN06_: test_IN06_, test_IN07_: test_IN07_, test_IN08_: test_IN08_, test_IN10_: test_IN10_, test_IN12_: test_IN12_, adminCtxForTest_: adminCtxForTest_, dropTestToken_: dropTestToken_, expectedRows_: expectedRows_, ids_: ids_, test_LS01_: test_LS01_, test_LS02_: test_LS02_, test_LS09_: test_LS09_, test_LS03_: test_LS03_, test_LS04_: test_LS04_, test_LS05_: test_LS05_, test_LS06_: test_LS06_, test_LS07_: test_LS07_, test_LS08_: test_LS08_, withTestPassword_: withTestPassword_, lastLog_: lastLog_, test_AU01_: test_AU01_, test_AU02_: test_AU02_, test_AU03_: test_AU03_, test_AU04_: test_AU04_, test_AU05_: test_AU05_, test_AU06_: test_AU06_, withTestRecord_: withTestRecord_, recordById_: recordById_, test_ED01_: test_ED01_, test_ED02_: test_ED02_, test_ED03_: test_ED03_, test_ED04_: test_ED04_, test_ED05_: test_ED05_, test_ED06_: test_ED06_, test_ED07_: test_ED07_, test_ED08_: test_ED08_, test_ED09_: test_ED09_, test_ED10_: test_ED10_, test_LK01_: test_LK01_, test_LG01_: test_LG01_, withBackupFolder_: withBackupFolder_, filesIn_: filesIn_, test_BK01_: test_BK01_, test_BK02_: test_BK02_, test_BK03_: test_BK03_, test_ST01_: test_ST01_, test_ST02_: test_ST02_, test_ST03_: test_ST03_, seedDevData: seedDevData, menuSeedDevData: menuSeedDevData, setAdminPasswordForPreview_: setAdminPasswordForPreview_ } };
 })();
 </script>
 <script>
@@ -3746,7 +3817,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
  * - google.script.run の代わりに、フェイク（tools/gas_fakes.js）の上で動く本物の Code.gs を呼ぶ。
  * - データは Tests.gs の seedDevData() が作る架空のもの（実在の人物ではない）。
  *   localStorage（キー boilerMock_v1）に保存し、再読み込みしても残す。
- * - 管理者暗証番号は 123456（Tests.gs の setAdminPinForPreview_ で設定する）。
+ * - 管理者パスワードは boiler（Tests.gs の setAdminPasswordForPreview_ でスクリプトプロパティに入れる。保存データを読んだあとも毎回入れ直す）。
  * - URL のハッシュで状態を指定できる（例: local_preview.html#tab=history&op=U02&admin=1&open=BP-20261101-001）
  *     op=入力者ID   … 操作者（op=none で未選択の状態にする）
  *     admin=1      … 管理者モードにする
@@ -3759,7 +3830,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
   var STORAGE_KEY = 'boilerMock_v1';
   var OP_KEY = 'boilerPressure.operatorId';     // js.html と同じキー（plan/01 K-19）
   var TOKEN_KEY = 'boilerPressure.adminToken';  // js.html と同じキー（sessionStorage）
-  var PREVIEW_PIN = '123456';
+  var PREVIEW_PASSWORD = 'boiler';
   var GAS = window.__GAS__;
   var fns = GAS.fns;
   var fakes = GAS.fakes;
@@ -3783,7 +3854,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
     call('menuSetup');
     var msg = call('seedDevData');
     if (msg) console.log('[プレビュー] ' + msg);
-    call('setAdminPinForPreview_', PREVIEW_PIN);
+    call('setAdminPasswordForPreview_', PREVIEW_PASSWORD);
     saveState();
   }
 
@@ -3795,7 +3866,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
     var saved = null;
     try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { saved = null; }
     if (saved) {
-      try { fakes.helpers.importState(saved); return; } catch (e) { console.warn('保存データを読めないため作り直します: ' + e); }
+      try { fakes.helpers.importState(saved); call('setAdminPasswordForPreview_', PREVIEW_PASSWORD); return; } catch (e) { console.warn('保存データを読めないため作り直します: ' + e); }
     }
     seedAll();
   }
@@ -3814,7 +3885,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
   function hasToken() { try { return !!sessionStorage.getItem(TOKEN_KEY); } catch (e) { return false; } }
 
   function authenticateAsAdmin() {
-    var res = call('authenticateAdmin', getOperatorId(), PREVIEW_PIN);
+    var res = call('authenticateAdmin', getOperatorId(), PREVIEW_PASSWORD);
     if (res === undefined) { console.warn('[プレビュー] authenticateAdmin はまだありません'); return false; }
     saveState();
     if (res && res.ok) { sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ operatorId: getOperatorId(), token: res.data.token, expiresAt: res.data.expiresAt })); return true; }
@@ -3906,7 +3977,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
 </script>
 <script>
   /* ボイラ圧力設定管理 — 画面の処理（js.html）
-     版: v0.7（2026/11/15。フェーズ8: ページ分け・表示の手直し・PC とタブレット）
+     版: v0.8（2026/11/15。フェーズ9: デザインをそろえた、管理者パスワード・「認証する」ボタン。plan/11）
      仕様: docs/02 §3・§5、docs/04 第2部 §9、plan/05
      ブラウザに保存するキー: localStorage 'boilerPressure.operatorId'、sessionStorage 'boilerPressure.adminToken'・'boilerPressure.historyFilter'・'boilerPressure.historyPage'
      ブラウザ標準の alert / confirm / prompt は使わない */
@@ -3917,8 +3988,8 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
   var MESSAGES = {
     M01: '記録しました', M02: '修正しました', M03: '削除しました', M04: '元に戻しました',
     M11: 'はじめに、あなたの名前を選んでください',
-    M12: '管理者モードにしました（30分）', M13: '管理者モードを終了しますか？', M14: '管理者モードの時間が切れました',
-    M15: '暗証番号が違います', M16: '続けて間違えたため、{n}分間は入れません',
+    M12: '管理者モードにしました（{n}分）', M13: '管理者モードを終了しますか？', M14: '管理者モードの時間が切れました',
+    M15: 'パスワードが違います', M16: '続けて間違えたため、{n}分間は入れません',
     M21: 'パターン{p}の基準は {m} MPa です。入力した値は基準と違います', M22: '未来の日時になっています。このまま登録しますか？',
     M23: 'この内容で記録しますか？', M24: 'この記録を修正できるのは、アプリで登録した本人と管理者です',
     M31: 'この記録を削除しますか？（あとで管理者が元に戻せます）',
@@ -3973,7 +4044,11 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
     person: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
     warn: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
     close: '<path d="M6 6l12 12M18 6 6 18"/>',
-    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3"/>'
+    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3"/>',
+    lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'
   };
   function icon(name, cls) {
     return '<svg class="icon ' + (cls || '') + '" viewBox="0 0 24 24" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
@@ -4009,22 +4084,29 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
   function showLoading() { loadingCount++; $('loading-overlay').classList.add('is-visible'); }
   function hideLoading() { loadingCount = Math.max(0, loadingCount - 1); if (!loadingCount) $('loading-overlay').classList.remove('is-visible'); }
 
-  function toast(text) {
+  /** トースト。kind: 'success'（既定）/ 'warning' / 'info' / 'error'（左の色の帯とアイコンが変わる） */
+  function toast(text, kind) {
+    kind = kind || 'success';
     var el = document.createElement('div');
-    el.className = 'toast';
-    el.textContent = text;
+    el.className = 'toast toast-' + kind;
+    el.innerHTML = icon(kind === 'success' ? 'check' : kind === 'info' ? 'info' : 'warn');
+    el.appendChild(document.createTextNode(text));
     $('toast-area').appendChild(el);
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 3000);
   }
 
+  /** 管理者モードの有効時間（分）。設定 AUTH_TOKEN_MINUTES */
+  function adminMinutes() { return Number(state.settings.AUTH_TOKEN_MINUTES) || 30; }
+
   /**
-   * モーダルを開く。opts: { title, html, sheet(下から出す), closable(既定 true), actions: [{ label, cls, onClick(close) }] }
+   * モーダルを開く。opts: { title, html, sheet(下から出す), closable(既定 true), icon: { name, tone('danger' / 'primary'。省略は注意の黄) },
+   *   actions: [{ label, cls, onClick(close) }] }
    * 閉じる関数を返す
    */
   function openModal(opts) {
     var closable = opts.closable !== false;
     var wrap = document.createElement('div');
-    wrap.className = 'modal' + (opts.sheet ? ' is-sheet' : '');
+    wrap.className = 'modal' + (opts.sheet ? ' is-sheet' : '') + (opts.icon ? ' has-icon' : '');
     wrap.setAttribute('role', 'dialog');
     wrap.setAttribute('aria-modal', 'true');
     wrap.innerHTML =
@@ -4032,7 +4114,9 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
         '<div class="modal-head"><h2 class="modal-title">' + esc(opts.title || '') + '</h2>' +
           (closable ? '<button type="button" class="modal-close" data-close aria-label="閉じる">' + icon('close') + '</button>' : '') +
         '</div>' +
-        '<div class="modal-body">' + (opts.html || '') + '</div>' +
+        '<div class="modal-body">' +
+          (opts.icon ? '<div class="modal-icon' + (opts.icon.tone ? ' is-' + opts.icon.tone : '') + '">' + icon(opts.icon.name) + '</div>' : '') +
+          (opts.html || '') + '</div>' +
         ((opts.actions || []).length ? '<div class="modal-actions"></div>' : '') +
       '</div>';
     function close() { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); }
@@ -4072,7 +4156,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
 
   /**
    * サーバーを呼ぶ本体。opts.silent: 画面に出さずに reject するエラーコードの配列。
-   * 管理者の権限が要る操作でトークンが無い・切れているとき（AUTH_REQUIRED need=admin）は、暗証番号のダイアログを出し、
+   * 管理者の権限が要る操作でトークンが無い・切れているとき（AUTH_REQUIRED need=admin）は、管理者認証のダイアログを出し、
    * 入れたら同じ操作を1回だけやり直す（docs/04 第2部 §9）
    */
   function callServer(name, rawArgs, opts) {
@@ -4644,7 +4728,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
           '<dt>更新</dt><dd class="num">' + esc(r.updatedAt) + '<span class="sub">' + esc(r.updatedByName) + '</span></dd>' +
         '</dl>' + (!d.canEdit && !r.deleted ? '<div class="notice-info">' + esc(MESSAGES.M24) + '</div>' : '');
       var actions = [{ label: '閉じる', cls: 'btn-secondary' }];
-      if (d.canDelete) actions.push({ label: '削除する', cls: 'btn-danger', onClick: function (close) { close(); confirmDelete(r); } });
+      if (d.canDelete) actions.push({ label: '削除する', cls: 'btn-danger-outline', onClick: function (close) { close(); confirmDelete(r); } });
       if (d.canRestore) actions.push({ label: '元に戻す', cls: 'btn-primary', onClick: function (close) { close(); restoreRec(r); } });
       if (d.canEdit) actions.push({ label: '修正する', cls: 'btn-primary', onClick: function (close) { close(); openEditor(d); } });
       openModal({ title: '記録の詳細', html: html, sheet: true, actions: actions });
@@ -4685,7 +4769,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
     state.token = null; state.adminExpiresAt = null; state.isAdmin = false;
     storageSet('sessionStorage', STORAGE.TOKEN, null);
     renderAdminChip();
-    if (expired && was) { toast(MESSAGES.M14); if (state.history.filter.includeDeleted) delete state.history.filter.includeDeleted; renderTab(state.tab); }
+    if (expired && was) { toast(MESSAGES.M14, 'warning'); if (state.history.filter.includeDeleted) delete state.history.filter.includeDeleted; renderTab(state.tab); }
   }
 
   /** 残り時間の表示を更新し、0 になったら管理者モードを解く（M-14） */
@@ -4697,7 +4781,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
 
   function onAdminChip() {
     if (state.isAdmin) {
-      openModal({ title: '管理者モード', html: '<p>' + esc(MESSAGES.M13) + '</p>', actions: [
+      openModal({ title: '管理者モード', icon: { name: 'key' }, html: '<p style="margin:0">' + esc(MESSAGES.M13) + '</p>', actions: [
         { label: '続ける', cls: 'btn-secondary' },
         { label: '終了する', cls: 'btn-primary', onClick: function (close) {
           close();
@@ -4712,23 +4796,26 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
     }
   }
 
-  /** 暗証番号のダイアログ。入れて認証できたら resolve、キャンセルしたら reject */
+  /**
+   * 管理者認証のダイアログ（plan/05 §7.2、plan/11 §3）。パスワードは2文字以上（形はサーバーのスクリプトプロパティ ADMIN_PASSWORD と比べる）。
+   * 認証できたら resolve、キャンセルしたら reject
+   */
   function openPinDialog() {
     return new Promise(function (resolve, reject) {
       var existing = document.querySelector('.modal[data-kind="pin"]');
       if (existing) existing.parentNode.removeChild(existing);
       var done = false;
-      var html = '<p class="muted" style="margin:0 0 12px">管理者の暗証番号を入れてください。入ると30分間、すべての記録の修正・削除ができます</p>' +
-        '<input class="input pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="8" id="pin-input" aria-label="暗証番号">' +
+      var html = '<p class="muted" style="margin:0 0 14px">管理者パスワードを入力してください。認証すると' + adminMinutes() + '分間、すべての記録の修正・削除ができます</p>' +
+        '<input class="input pin-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100" id="pin-input" placeholder="管理者パスワードを入力" aria-label="管理者パスワード">' +
         '<div class="field-error" id="pin-error"></div>';
       function submit(close) {
-        var pin = $('pin-input').value.trim();
-        if (!/^\d{4,8}$/.test(pin)) { $('pin-error').textContent = '4〜8桁の数字で入れてください'; return; }
-        callServer('authenticateAdmin', [state.operatorId, pin], { silent: ['AUTH_FAILED', 'AUTH_LOCKED'] }).then(function (d) {
+        var pw = $('pin-input').value.trim();
+        if (pw.length < 2) { $('pin-error').textContent = 'パスワードは2文字以上です'; return; }
+        callServer('authenticateAdmin', [state.operatorId, pw], { silent: ['AUTH_FAILED', 'AUTH_LOCKED'] }).then(function (d) {
           done = true;
           close();
           setAdmin(d.token, d.expiresAt);
-          toast(MESSAGES.M12);
+          toast(msg('M12', { n: Math.max(1, Math.round((d.expiresAt - Date.now()) / 60000)) }));
           resolve();
         }, function (err) {
           var e = err && err.error;
@@ -4739,11 +4826,11 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
         });
       }
       var closeFn = openModal({
-        title: '管理者モード', html: html,
+        title: '管理者認証', icon: { name: 'lock', tone: 'primary' }, html: html,
         onClose: function () { if (!done) reject({ handled: true, code: 'CANCEL' }); },
         actions: [
           { label: 'キャンセル', cls: 'btn-secondary', onClick: function (close) { close(); reject({ handled: true, code: 'CANCEL' }); } },
-          { label: '入る', cls: 'btn-primary', onClick: function (close) { submit(close); } }
+          { label: '認証する', cls: 'btn-primary', onClick: function (close) { submit(close); } }
         ]
       });
       var modal = $('modal-root').lastChild;
@@ -4770,7 +4857,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
   }
 
   function confirmDelete(r) {
-    openModal({ title: '削除の確認', html: '<p>' + esc(MESSAGES.M31) + '</p><p class="muted num">' + esc(r.changedAt + '  ' + patternLabel(r.pattern) + '  ' + fmt2(r.pressure) + ' MPa') + '</p>', actions: [
+    openModal({ title: '削除の確認', icon: { name: 'trash', tone: 'danger' }, html: '<p style="margin:0 0 6px">' + esc(MESSAGES.M31) + '</p><p class="muted num" style="margin:0">' + esc(r.changedAt + '  ' + patternLabel(r.pattern) + '  ' + fmt2(r.pressure) + ' MPa') + '</p>', actions: [
       { label: 'キャンセル', cls: 'btn-secondary' },
       { label: '削除する', cls: 'btn-danger', onClick: function (close) {
         close();
@@ -4863,7 +4950,7 @@ function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
           saving = true;
           callServer('updateRecord', [r.recordId, payload, r.version], { silent: ['VALIDATION'] }).then(function (res) {
             close();
-            toast(res.unchanged ? '変更はありませんでした' : MESSAGES.M02);
+            if (res.unchanged) toast('変更はありませんでした', 'info'); else toast(MESSAGES.M02);
             afterChange();
           }, function (err) {
             saving = false;

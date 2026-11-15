@@ -5,23 +5,32 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>ボイラ圧力設定管理</title>
+  <!-- フォント: ロッカーキー貸出管理と同じ（plan/11 C-1）。読めないときは css.html のシステムフォントで表示する -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
   <?!= include('css'); ?>
 </head>
 <body>
   <!-- 画面構成は docs/02 §3、細部は plan/05 -->
   <header class="app-header">
-    <h1 class="app-title" id="app-title">ボイラ圧力設定管理</h1>
-    <span class="badge badge-env" id="env-badge" hidden>開発</span>
-    <!-- タブ: スマホ・タブレットは画面の下に固定、PC（1024px〜）はヘッダの中に並べる（css.html） -->
-    <nav class="tabbar" id="tabbar" aria-label="画面の切り替え">
-      <button type="button" class="tab-btn" data-tab="home"></button>
-      <button type="button" class="tab-btn" data-tab="input"></button>
-      <button type="button" class="tab-btn" data-tab="history"></button>
-      <button type="button" class="tab-btn" data-tab="patterns"></button>
-    </nav>
-    <span class="header-spacer"></span>
-    <button type="button" class="operator-chip" id="operator-chip" aria-label="操作者を選ぶ"></button>
-    <button type="button" class="admin-chip" id="admin-chip" aria-label="管理者モード"></button>
+    <div class="header-inner">
+      <span class="app-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4.6 18.5a9 9 0 1 1 14.8 0"/><path d="M12 14l4-4.5"/><circle cx="12" cy="14" r="1.6"/></svg>
+      </span>
+      <h1 class="app-title" id="app-title">ボイラ圧力設定管理</h1>
+      <span class="badge badge-env" id="env-badge" hidden>開発</span>
+      <span class="header-spacer"></span>
+      <!-- タブ: スマホ・タブレットは画面の下に固定、PC（1024px〜）はヘッダの右に並べる（css.html） -->
+      <nav class="tabbar" id="tabbar" aria-label="画面の切り替え">
+        <button type="button" class="tab-btn" data-tab="home"></button>
+        <button type="button" class="tab-btn" data-tab="input"></button>
+        <button type="button" class="tab-btn" data-tab="history"></button>
+        <button type="button" class="tab-btn" data-tab="patterns"></button>
+      </nav>
+      <button type="button" class="operator-chip" id="operator-chip" aria-label="操作者を選ぶ"></button>
+      <button type="button" class="admin-chip" id="admin-chip" aria-label="管理者モード"></button>
+    </div>
   </header>
 
   <main class="app-main">
@@ -33,7 +42,7 @@
 
   <div id="modal-root"></div>
   <div class="toast-area" id="toast-area" aria-live="polite"></div>
-  <div class="loading-overlay" id="loading-overlay" aria-hidden="true"><div class="spinner"></div></div>
+  <div class="loading-overlay" id="loading-overlay" aria-hidden="true"><div class="loading-box"><div class="spinner"></div><p class="loading-text">通信中…</p></div></div>
 
   <?!= include('js'); ?>
 </body>

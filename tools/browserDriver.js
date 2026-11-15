@@ -113,7 +113,7 @@ async function launchBrowser(options) {
       new MutationObserver(function(mutations){
         window.__lastMutation = Date.now();
         mutations.forEach(function(m){ m.addedNodes.forEach(function(n){
-          if (n.nodeType === 1 && n.classList && n.classList.contains('toast')) window.__toasts.push(n.innerText.replace(/\\n/g, ' '));
+          if (n.nodeType === 1 && n.classList && n.classList.contains('toast')) window.__toasts.push(n.innerText.replace(/\\n/g, ' ').trim()); // アイコンの分の空白は除く
         }); });
       }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
     });

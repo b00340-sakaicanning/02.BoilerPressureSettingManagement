@@ -30,7 +30,7 @@ ctx = { operatorId: 'U01', token: 'uuid または null' }
 |---|---|
 | VALIDATION | 入力チェックのエラー（fields に項目ごとの文言） |
 | AUTH_REQUIRED | 操作者が無効、または管理者の権限が要るのにトークンがない・切れている。`error.detail.need` に `operator` か `admin` を入れる |
-| AUTH_FAILED | 暗証番号が違う |
+| AUTH_FAILED | パスワードが違う・未設定 |
 | AUTH_LOCKED | 間違えすぎてロック中（`error.detail.minutes` に残りの分数） |
 | FORBIDDEN | 権限がない |
 | CONFLICT | 版数が違う（ほかの人が先に更新した） |
@@ -56,7 +56,7 @@ ctx = { operatorId: 'U01', token: 'uuid または null' }
 
 | 関数 | 引数 | 戻り値 data | 備考 |
 |---|---|---|---|
-| `authenticateAdmin(operatorId, pin)` | 入力者ID、暗証番号 | `{token, expiresAt}` | 04 §3.2。operatorId が有効な人でなければ AUTH_REQUIRED |
+| `authenticateAdmin(operatorId, password)` | 入力者ID、管理者パスワード | `{token, expiresAt}` | 04 §3.2。operatorId が有効な人でなければ AUTH_REQUIRED |
 | `logoutAdmin(ctx)` | | `{}` | トークンをキャッシュから消す |
 | `checkAdmin(ctx)` | | `{admin: true/false, expiresAt}` | 画面を開き直したとき、sessionStorage のトークンが使えるかを確かめる |
 
@@ -115,7 +115,6 @@ ctx = { operatorId: 'U01', token: 'uuid または null' }
 | メニューの項目 | 関数 | 内容 |
 |---|---|---|
 | 初期設定（シートの作成） | `menuSetup()` | 03 §1.1 のシートと見出し、書式、保護、設定の初期値、品種マスタの初期データを作る。何度実行しても重複しない |
-| 管理者暗証番号を設定 | `menuSetAdminPin()` | 04 §3.1。`SpreadsheetApp.getUi().prompt` で2回入れる |
 | 移行データ取込 | `menuImportMigration()` | 04 §13.4。結果と照合の値（04 §13.5）をダイアログに出す |
 | バックアップのトリガーを設定 | `menuSetupBackupTrigger()` | 04 §14 |
 | 今すぐバックアップ | `menuBackupNow()` | 04 §14 |
@@ -159,7 +158,7 @@ ctx = { operatorId: 'U01', token: 'uuid または null' }
 
 | 関数 | 内容 |
 |---|---|
-| `api(name, ...args)` | `google.script.run` を Promise に包む。ctx を先頭に自動で足す（`authenticateAdmin` を除く）。ローディングの表示と、二度押しの防止も行う。`AUTH_REQUIRED`（need=admin）なら暗証番号のダイアログを出してやり直し、need=operator なら操作者を選ぶモーダルを出す |
+| `api(name, ...args)` | `google.script.run` を Promise に包む。ctx を先頭に自動で足す（`authenticateAdmin` を除く）。ローディングの表示と、二度押しの防止も行う。`AUTH_REQUIRED`（need=admin）なら管理者認証のダイアログを出してやり直し、need=operator なら操作者を選ぶモーダルを出す |
 | `state` | 画面の状態（settings、マスタ、今のタブ、操作者、トークン、履歴の条件と読み込んだ件数） |
 | `renderHome()` / `renderInput()` / `renderHistory(append)` / `renderPatterns()` | 各タブの表示 |
 | `openRecord(recordId)` | 詳細のモーダルを開く |

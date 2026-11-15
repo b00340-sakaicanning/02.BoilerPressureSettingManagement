@@ -1,6 +1,6 @@
 /**
  * ボイラ圧力設定管理 — サーバー側（Code.gs）
- * 版: v1.2（2026/11/15。フェーズ8: 履歴のページ分け・品種の集約と並び）
+ * 版: v1.3（2026/11/15。フェーズ9: 管理者パスワードをスクリプトプロパティで管理）
  *
  * 仕様の正: docs/03_データ設計.md、docs/04_実装仕様.md（計画: plan/02 §2.1）
  * 反映: このファイルの中身を、GAS エディタの Code.gs に丸ごと貼り替える（clasp は使わない）
@@ -11,7 +11,7 @@
  *   3 【Utils】      日時の整形、"HH:mm" の正規化、数値の丸め、ハッシュ、uuid
  *   4 【Repository】 withLock_、readAll_、findRowIndex_、appendRow_、updateRow_
  *   5 【Masters】    パターン・入力者・品種の取得と検索
- *   6 【Auth】       管理者暗証番号の照合、トークンの発行と確認
+ *   6 【Auth】       管理者パスワードの照合（スクリプトプロパティ）、トークンの発行と確認
  *   7 【Validator】  入力チェック
  *   8 【Records】    登録・修正・削除・元に戻す、採番、マスタとの差異
  *   9 【Query】      今の設定、直近の記録、履歴の検索
@@ -189,17 +189,19 @@ const SETTING_DEFAULTS = [
   ['RECENT_COUNT', '5', 'ホームに出す直近の件数'],
   ['FUTURE_WARN_MINUTES', '10', 'これより先の日時は確認ダイアログで注意する（分）'],
   ['AUTH_TOKEN_MINUTES', '30', '管理者トークンの有効時間（分）'],
-  ['PIN_MAX_FAILS', '5', '暗証番号を続けて間違えてよい回数'],
+  ['PIN_MAX_FAILS', '5', '管理者パスワードを続けて間違えてよい回数'],
   ['PIN_LOCK_MINUTES', '15', '間違えすぎたときのロック時間（分）'],
-  ['ADMIN_PIN_SALT', '', '管理者暗証番号の salt（メニュー「管理者暗証番号を設定」で作る。直接編集しない）'],
-  ['ADMIN_PIN_HASH', '', '管理者暗証番号のハッシュ（メニュー「管理者暗証番号を設定」で作る。直接編集しない）'],
   ['MIGRATION_FOLDER_ID', '', '移行 CSV を置くフォルダの ID'],
   ['BACKUP_FOLDER_ID', '', 'バックアップの保存先フォルダの ID'],
   ['BACKUP_KEEP_MONTHS', '12', 'バックアップを残す月数']
 ];
 
 /** 画面に返してよい設定キー（docs/03 §3.4） */
-const PUBLIC_SETTING_KEYS = ['APP_TITLE', 'ENV', 'PRESSURE_MIN', 'PRESSURE_MAX', 'NOTE_MAX_LENGTH', 'PAGE_SIZE', 'FUTURE_WARN_MINUTES'];
+const PUBLIC_SETTING_KEYS = ['APP_TITLE', 'ENV', 'PRESSURE_MIN', 'PRESSURE_MAX', 'NOTE_MAX_LENGTH', 'PAGE_SIZE', 'FUTURE_WARN_MINUTES', 'AUTH_TOKEN_MINUTES'];
+
+/** 管理者パスワードを置くスクリプトプロパティのキーと、最小の文字数（docs/04 第1部 §3.1、plan/11 C-3・C-4） */
+const ADMIN_PASSWORD_PROPERTY = 'ADMIN_PASSWORD';
+const ADMIN_PASSWORD_MIN_LENGTH = 2;
 
 /** 品種マスタの初期データ（D-20） */
 const PRODUCTS_INITIAL = ['小型(0.35〜1.0L)', '小型(水、スポーツ)', '1.5L(お茶)', '1.5L(水、スポーツ)', '2L(麦茶あり)', '2L(麦茶なし)', '2L(水、スポーツ)', 'その他'];
@@ -565,17 +567,16 @@ function operatorsById_() {
 }
 
 // =====================================================
-// 【Auth】 管理者暗証番号の照合、トークンの発行と確認
+// 【Auth】 管理者パスワードの照合、トークンの発行と確認
 // =====================================================
 
-/** 管理者暗証番号を設定する（docs/04 第1部 §3.1）。4〜8桁の数字。salt とハッシュだけを保存する */
-function setAdminPin_(pin) {
-  if (!/^\d{4,8}$/.test(String(pin))) throw AppError('VALIDATION', '暗証番号は4〜8桁の数字にしてください');
-  withLock_(function () {
-    const salt = uuid_();
-    setSetting_('ADMIN_PIN_SALT', salt);
-    setSetting_('ADMIN_PIN_HASH', sha256Hex_(salt + ':' + pin));
-  });
+/**
+ * 管理者パスワード（docs/04 第1部 §3.1）。スクリプトプロパティ ADMIN_PASSWORD の値（前後の空白は取る）。
+ * 持ち主が GAS エディタの「プロジェクトの設定 → スクリプト プロパティ」で入れる。無い・2文字未満なら ''（誰も入れない）
+ */
+function adminPassword_() {
+  const v = String(PropertiesService.getScriptProperties().getProperty(ADMIN_PASSWORD_PROPERTY) || '').trim();
+  return v.length >= ADMIN_PASSWORD_MIN_LENGTH ? v : '';
 }
 
 /**
@@ -609,7 +610,7 @@ function roleOf_(ctx) {
 /** 管理者の権限が要る操作の入口。トークンが無い・切れているときは AUTH_REQUIRED（need=admin） */
 function requireAdmin_(ctx) {
   verifyOperator_(ctx);
-  if (!verifyAdmin_(ctx)) throw AppError('AUTH_REQUIRED', '管理者の暗証番号を入れてください', null, { need: 'admin' });
+  if (!verifyAdmin_(ctx)) throw AppError('AUTH_REQUIRED', '管理者のパスワードを入れてください', null, { need: 'admin' });
 }
 
 /** トークンの中身（{ operatorId, expiresAt }）。無効なら null */
@@ -620,10 +621,11 @@ function adminTokenInfo_(ctx) {
 
 /**
  * 管理者の認証（docs/04 第1部 §3.2）。成功したらトークンを発行する（AUTH_TOKEN_MINUTES 分有効。延長しない）。
+ * パスワードはスクリプトプロパティ ADMIN_PASSWORD と比べる（未設定なら誰も入れず、失敗にも数えない）。
  * 失敗はアプリ全体で数え、PIN_MAX_FAILS 回続けて間違えたら PIN_LOCK_MINUTES 分ロックする（K-20）。
  * 戻り値 data: { token, expiresAt（ミリ秒） }
  */
-function authenticateAdmin(operatorId, pin) {
+function authenticateAdmin(operatorId, password) {
   return handle_(function () {
     const ctx = { operatorId: String(operatorId || ''), token: null };
     verifyOperator_(ctx);
@@ -634,10 +636,10 @@ function authenticateAdmin(operatorId, pin) {
       const minutes = Math.ceil((lockedUntil - now) / 60000);
       throw AppError('AUTH_LOCKED', '続けて間違えたため、' + minutes + '分間は入れません', null, { minutes: minutes });
     }
-    const salt = getSetting_('ADMIN_PIN_SALT'), hash = getSetting_('ADMIN_PIN_HASH');
-    if (!salt || !hash) throw AppError('AUTH_FAILED', '管理者暗証番号がまだ設定されていません（スプレッドシートのメニューで設定してください）');
+    const expected = adminPassword_();
+    if (!expected) throw AppError('AUTH_FAILED', '管理者パスワードが設定されていません（GAS エディタのスクリプト プロパティ ' + ADMIN_PASSWORD_PROPERTY + ' に' + ADMIN_PASSWORD_MIN_LENGTH + '文字以上で設定してください）');
     const lockMinutes = getSettingNumber_('PIN_LOCK_MINUTES');
-    if (sha256Hex_(salt + ':' + String(pin === undefined || pin === null ? '' : pin).trim()) !== hash) {
+    if (String(password === undefined || password === null ? '' : password).trim() !== expected) {
       const fails = Number(cache.get('pinfail') || 0) + 1;
       if (fails >= getSettingNumber_('PIN_MAX_FAILS')) {
         cache.put('pinlock', String(now + lockMinutes * 60000), lockMinutes * 60);
@@ -647,7 +649,7 @@ function authenticateAdmin(operatorId, pin) {
       }
       cache.put('pinfail', String(fails), lockMinutes * 60);
       writeLog_(ctx, ROLES.SETTER, 'AUTH_FAIL', '', { fails: fails });
-      throw AppError('AUTH_FAILED', '暗証番号が違います');
+      throw AppError('AUTH_FAILED', 'パスワードが違います');
     }
     cache.remove('pinfail');
     const minutes = getSettingNumber_('AUTH_TOKEN_MINUTES');
@@ -836,7 +838,7 @@ function checkVersion_(r, version) {
 
 /** 権限が足りないとき: トークンを持っていた（期限切れ）なら AUTH_REQUIRED（need=admin）、そうでなければ FORBIDDEN */
 function denyEdit_(ctx) {
-  if (ctx && ctx.token) throw AppError('AUTH_REQUIRED', '管理者の暗証番号を入れてください', null, { need: 'admin' });
+  if (ctx && ctx.token) throw AppError('AUTH_REQUIRED', '管理者のパスワードを入れてください', null, { need: 'admin' });
   throw AppError('FORBIDDEN', 'この記録を修正できるのは、アプリで登録した本人と管理者です');
 }
 
@@ -1052,7 +1054,7 @@ function getRecord(ctx, recordId) {
 const LOG_ACTIONS = {
   CREATE: '登録', UPDATE: '修正', DELETE: '削除', RESTORE: '削除の取り消し',
   AUTH_OK: '管理者認証', AUTH_FAIL: '管理者認証の失敗', AUTH_LOCK: '管理者認証のロック',
-  ADMIN_PIN_SET: '管理者暗証番号の設定', MIGRATE: '移行データ取込', BACKUP: 'バックアップ', SETUP: '初期設定'
+  ADMIN_PIN_SET: '管理者暗証番号の設定', /* 前の版（暗証番号をメニューで設定していたころ）のログの表示用 */ MIGRATE: '移行データ取込', BACKUP: 'バックアップ', SETUP: '初期設定'
 };
 
 /**
@@ -1387,7 +1389,6 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   const menu = ui.createMenu('ボイラ圧力設定')
     .addItem('初期設定（シートの作成）', 'menuSetup')
-    .addItem('管理者暗証番号を設定', 'menuSetAdminPin')
     .addItem('移行データ取込', 'menuImportMigration')
     .addSeparator()
     .addItem('バックアップのトリガーを設定', 'menuSetupBackupTrigger')
@@ -1447,7 +1448,9 @@ function menuSetup() {
     return '初期設定が終わりました。\n' +
       '作成したシート: ' + (created.length ? created.join('、') : 'なし') + '\n' +
       '追加した見出し: ' + (addedHeaders.length ? addedHeaders.join(' / ') : 'なし') + '\n' +
-      '追加した設定: ' + settingsAdded + '件、追加した品種: ' + productsAdded + '件';
+      '追加した設定: ' + settingsAdded + '件、追加した品種: ' + productsAdded + '件' +
+      (adminPassword_() ? '' : '\n\n管理者パスワードが未設定です。GAS エディタの「プロジェクトの設定 → スクリプト プロパティ」で、' +
+        ADMIN_PASSWORD_PROPERTY + ' に' + ADMIN_PASSWORD_MIN_LENGTH + '文字以上のパスワードを設定してください');
   });
   alert_(summary);
   return summary;
@@ -1499,21 +1502,4 @@ function ensureInitialProducts_() {
   if (readAll_('PRODUCTS').length) return 0;
   appendRows_('PRODUCTS', PRODUCTS_INITIAL.map(function (name, i) { return { name: name, sortOrder: i + 1, active: true }; }));
   return PRODUCTS_INITIAL.length;
-}
-
-/** メニュー「管理者暗証番号を設定」（docs/04 第1部 §3.1）。4〜8桁の数字を2回入れる */
-function menuSetAdminPin() {
-  resetExecutionCache_();
-  const ui = SpreadsheetApp.getUi();
-  const r1 = ui.prompt('管理者暗証番号の設定', '新しい暗証番号（4〜8桁の数字）を入れてください', ui.ButtonSet.OK_CANCEL);
-  if (r1.getSelectedButton() !== ui.Button.OK) { alert_('中止しました'); return '中止'; }
-  const pin = String(r1.getResponseText()).trim();
-  if (!/^\d{4,8}$/.test(pin)) { alert_('暗証番号は4〜8桁の数字にしてください。設定していません'); return '形式エラー'; }
-  const r2 = ui.prompt('管理者暗証番号の設定', '確認のため、もう一度入れてください', ui.ButtonSet.OK_CANCEL);
-  if (r2.getSelectedButton() !== ui.Button.OK) { alert_('中止しました'); return '中止'; }
-  if (String(r2.getResponseText()).trim() !== pin) { alert_('1回目と2回目が違います。設定していません'); return '不一致'; }
-  setAdminPin_(pin);
-  writeLog_(null, ROLES.SYSTEM, 'ADMIN_PIN_SET', '', {});
-  alert_('管理者暗証番号を設定しました');
-  return '設定';
 }

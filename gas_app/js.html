@@ -1,6 +1,6 @@
 <script>
   /* ボイラ圧力設定管理 — 画面の処理（js.html）
-     版: v0.7（2026/11/15。フェーズ8: ページ分け・表示の手直し・PC とタブレット）
+     版: v0.8（2026/11/15。フェーズ9: デザインをそろえた、管理者パスワード・「認証する」ボタン。plan/11）
      仕様: docs/02 §3・§5、docs/04 第2部 §9、plan/05
      ブラウザに保存するキー: localStorage 'boilerPressure.operatorId'、sessionStorage 'boilerPressure.adminToken'・'boilerPressure.historyFilter'・'boilerPressure.historyPage'
      ブラウザ標準の alert / confirm / prompt は使わない */
@@ -11,8 +11,8 @@
   var MESSAGES = {
     M01: '記録しました', M02: '修正しました', M03: '削除しました', M04: '元に戻しました',
     M11: 'はじめに、あなたの名前を選んでください',
-    M12: '管理者モードにしました（30分）', M13: '管理者モードを終了しますか？', M14: '管理者モードの時間が切れました',
-    M15: '暗証番号が違います', M16: '続けて間違えたため、{n}分間は入れません',
+    M12: '管理者モードにしました（{n}分）', M13: '管理者モードを終了しますか？', M14: '管理者モードの時間が切れました',
+    M15: 'パスワードが違います', M16: '続けて間違えたため、{n}分間は入れません',
     M21: 'パターン{p}の基準は {m} MPa です。入力した値は基準と違います', M22: '未来の日時になっています。このまま登録しますか？',
     M23: 'この内容で記録しますか？', M24: 'この記録を修正できるのは、アプリで登録した本人と管理者です',
     M31: 'この記録を削除しますか？（あとで管理者が元に戻せます）',
@@ -67,7 +67,11 @@
     person: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
     warn: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
     close: '<path d="M6 6l12 12M18 6 6 18"/>',
-    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3"/>'
+    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3"/>',
+    lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'
   };
   function icon(name, cls) {
     return '<svg class="icon ' + (cls || '') + '" viewBox="0 0 24 24" aria-hidden="true">' + (ICONS[name] || '') + '</svg>';
@@ -103,22 +107,29 @@
   function showLoading() { loadingCount++; $('loading-overlay').classList.add('is-visible'); }
   function hideLoading() { loadingCount = Math.max(0, loadingCount - 1); if (!loadingCount) $('loading-overlay').classList.remove('is-visible'); }
 
-  function toast(text) {
+  /** トースト。kind: 'success'（既定）/ 'warning' / 'info' / 'error'（左の色の帯とアイコンが変わる） */
+  function toast(text, kind) {
+    kind = kind || 'success';
     var el = document.createElement('div');
-    el.className = 'toast';
-    el.textContent = text;
+    el.className = 'toast toast-' + kind;
+    el.innerHTML = icon(kind === 'success' ? 'check' : kind === 'info' ? 'info' : 'warn');
+    el.appendChild(document.createTextNode(text));
     $('toast-area').appendChild(el);
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 3000);
   }
 
+  /** 管理者モードの有効時間（分）。設定 AUTH_TOKEN_MINUTES */
+  function adminMinutes() { return Number(state.settings.AUTH_TOKEN_MINUTES) || 30; }
+
   /**
-   * モーダルを開く。opts: { title, html, sheet(下から出す), closable(既定 true), actions: [{ label, cls, onClick(close) }] }
+   * モーダルを開く。opts: { title, html, sheet(下から出す), closable(既定 true), icon: { name, tone('danger' / 'primary'。省略は注意の黄) },
+   *   actions: [{ label, cls, onClick(close) }] }
    * 閉じる関数を返す
    */
   function openModal(opts) {
     var closable = opts.closable !== false;
     var wrap = document.createElement('div');
-    wrap.className = 'modal' + (opts.sheet ? ' is-sheet' : '');
+    wrap.className = 'modal' + (opts.sheet ? ' is-sheet' : '') + (opts.icon ? ' has-icon' : '');
     wrap.setAttribute('role', 'dialog');
     wrap.setAttribute('aria-modal', 'true');
     wrap.innerHTML =
@@ -126,7 +137,9 @@
         '<div class="modal-head"><h2 class="modal-title">' + esc(opts.title || '') + '</h2>' +
           (closable ? '<button type="button" class="modal-close" data-close aria-label="閉じる">' + icon('close') + '</button>' : '') +
         '</div>' +
-        '<div class="modal-body">' + (opts.html || '') + '</div>' +
+        '<div class="modal-body">' +
+          (opts.icon ? '<div class="modal-icon' + (opts.icon.tone ? ' is-' + opts.icon.tone : '') + '">' + icon(opts.icon.name) + '</div>' : '') +
+          (opts.html || '') + '</div>' +
         ((opts.actions || []).length ? '<div class="modal-actions"></div>' : '') +
       '</div>';
     function close() { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); }
@@ -166,7 +179,7 @@
 
   /**
    * サーバーを呼ぶ本体。opts.silent: 画面に出さずに reject するエラーコードの配列。
-   * 管理者の権限が要る操作でトークンが無い・切れているとき（AUTH_REQUIRED need=admin）は、暗証番号のダイアログを出し、
+   * 管理者の権限が要る操作でトークンが無い・切れているとき（AUTH_REQUIRED need=admin）は、管理者認証のダイアログを出し、
    * 入れたら同じ操作を1回だけやり直す（docs/04 第2部 §9）
    */
   function callServer(name, rawArgs, opts) {
@@ -738,7 +751,7 @@
           '<dt>更新</dt><dd class="num">' + esc(r.updatedAt) + '<span class="sub">' + esc(r.updatedByName) + '</span></dd>' +
         '</dl>' + (!d.canEdit && !r.deleted ? '<div class="notice-info">' + esc(MESSAGES.M24) + '</div>' : '');
       var actions = [{ label: '閉じる', cls: 'btn-secondary' }];
-      if (d.canDelete) actions.push({ label: '削除する', cls: 'btn-danger', onClick: function (close) { close(); confirmDelete(r); } });
+      if (d.canDelete) actions.push({ label: '削除する', cls: 'btn-danger-outline', onClick: function (close) { close(); confirmDelete(r); } });
       if (d.canRestore) actions.push({ label: '元に戻す', cls: 'btn-primary', onClick: function (close) { close(); restoreRec(r); } });
       if (d.canEdit) actions.push({ label: '修正する', cls: 'btn-primary', onClick: function (close) { close(); openEditor(d); } });
       openModal({ title: '記録の詳細', html: html, sheet: true, actions: actions });
@@ -779,7 +792,7 @@
     state.token = null; state.adminExpiresAt = null; state.isAdmin = false;
     storageSet('sessionStorage', STORAGE.TOKEN, null);
     renderAdminChip();
-    if (expired && was) { toast(MESSAGES.M14); if (state.history.filter.includeDeleted) delete state.history.filter.includeDeleted; renderTab(state.tab); }
+    if (expired && was) { toast(MESSAGES.M14, 'warning'); if (state.history.filter.includeDeleted) delete state.history.filter.includeDeleted; renderTab(state.tab); }
   }
 
   /** 残り時間の表示を更新し、0 になったら管理者モードを解く（M-14） */
@@ -791,7 +804,7 @@
 
   function onAdminChip() {
     if (state.isAdmin) {
-      openModal({ title: '管理者モード', html: '<p>' + esc(MESSAGES.M13) + '</p>', actions: [
+      openModal({ title: '管理者モード', icon: { name: 'key' }, html: '<p style="margin:0">' + esc(MESSAGES.M13) + '</p>', actions: [
         { label: '続ける', cls: 'btn-secondary' },
         { label: '終了する', cls: 'btn-primary', onClick: function (close) {
           close();
@@ -806,23 +819,26 @@
     }
   }
 
-  /** 暗証番号のダイアログ。入れて認証できたら resolve、キャンセルしたら reject */
+  /**
+   * 管理者認証のダイアログ（plan/05 §7.2、plan/11 §3）。パスワードは2文字以上（形はサーバーのスクリプトプロパティ ADMIN_PASSWORD と比べる）。
+   * 認証できたら resolve、キャンセルしたら reject
+   */
   function openPinDialog() {
     return new Promise(function (resolve, reject) {
       var existing = document.querySelector('.modal[data-kind="pin"]');
       if (existing) existing.parentNode.removeChild(existing);
       var done = false;
-      var html = '<p class="muted" style="margin:0 0 12px">管理者の暗証番号を入れてください。入ると30分間、すべての記録の修正・削除ができます</p>' +
-        '<input class="input pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="8" id="pin-input" aria-label="暗証番号">' +
+      var html = '<p class="muted" style="margin:0 0 14px">管理者パスワードを入力してください。認証すると' + adminMinutes() + '分間、すべての記録の修正・削除ができます</p>' +
+        '<input class="input pin-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="100" id="pin-input" placeholder="管理者パスワードを入力" aria-label="管理者パスワード">' +
         '<div class="field-error" id="pin-error"></div>';
       function submit(close) {
-        var pin = $('pin-input').value.trim();
-        if (!/^\d{4,8}$/.test(pin)) { $('pin-error').textContent = '4〜8桁の数字で入れてください'; return; }
-        callServer('authenticateAdmin', [state.operatorId, pin], { silent: ['AUTH_FAILED', 'AUTH_LOCKED'] }).then(function (d) {
+        var pw = $('pin-input').value.trim();
+        if (pw.length < 2) { $('pin-error').textContent = 'パスワードは2文字以上です'; return; }
+        callServer('authenticateAdmin', [state.operatorId, pw], { silent: ['AUTH_FAILED', 'AUTH_LOCKED'] }).then(function (d) {
           done = true;
           close();
           setAdmin(d.token, d.expiresAt);
-          toast(MESSAGES.M12);
+          toast(msg('M12', { n: Math.max(1, Math.round((d.expiresAt - Date.now()) / 60000)) }));
           resolve();
         }, function (err) {
           var e = err && err.error;
@@ -833,11 +849,11 @@
         });
       }
       var closeFn = openModal({
-        title: '管理者モード', html: html,
+        title: '管理者認証', icon: { name: 'lock', tone: 'primary' }, html: html,
         onClose: function () { if (!done) reject({ handled: true, code: 'CANCEL' }); },
         actions: [
           { label: 'キャンセル', cls: 'btn-secondary', onClick: function (close) { close(); reject({ handled: true, code: 'CANCEL' }); } },
-          { label: '入る', cls: 'btn-primary', onClick: function (close) { submit(close); } }
+          { label: '認証する', cls: 'btn-primary', onClick: function (close) { submit(close); } }
         ]
       });
       var modal = $('modal-root').lastChild;
@@ -864,7 +880,7 @@
   }
 
   function confirmDelete(r) {
-    openModal({ title: '削除の確認', html: '<p>' + esc(MESSAGES.M31) + '</p><p class="muted num">' + esc(r.changedAt + '  ' + patternLabel(r.pattern) + '  ' + fmt2(r.pressure) + ' MPa') + '</p>', actions: [
+    openModal({ title: '削除の確認', icon: { name: 'trash', tone: 'danger' }, html: '<p style="margin:0 0 6px">' + esc(MESSAGES.M31) + '</p><p class="muted num" style="margin:0">' + esc(r.changedAt + '  ' + patternLabel(r.pattern) + '  ' + fmt2(r.pressure) + ' MPa') + '</p>', actions: [
       { label: 'キャンセル', cls: 'btn-secondary' },
       { label: '削除する', cls: 'btn-danger', onClick: function (close) {
         close();
@@ -957,7 +973,7 @@
           saving = true;
           callServer('updateRecord', [r.recordId, payload, r.version], { silent: ['VALIDATION'] }).then(function (res) {
             close();
-            toast(res.unchanged ? '変更はありませんでした' : MESSAGES.M02);
+            if (res.unchanged) toast('変更はありませんでした', 'info'); else toast(MESSAGES.M02);
             afterChange();
           }, function (err) {
             saving = false;

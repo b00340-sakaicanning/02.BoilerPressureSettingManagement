@@ -1,6 +1,6 @@
 /**
  * ボイラ圧力設定管理 — テスト（Tests.gs）
- * 版: v1.1（2026/11/15。フェーズ8: 履歴のページ分け・品種の集約）
+ * 版: v1.2（2026/11/15。フェーズ9: 管理者パスワードをスクリプトプロパティで管理）
  *
  * - 開発環境の GAS プロジェクトだけに貼る（本番には貼らない。plan/02 §3.1）
  * - Code.gs の関数を呼ぶだけ。Code.gs からこのファイルは呼ばない
@@ -42,7 +42,7 @@ function testList_() {
     ['TC-DL-08', 'writeLog_ で操作ログに1行足される', test_DL08_, 'gas'],
     ['TC-DL-09', '日付・数値・真偽値の変換（parseDate_、toDate_、round2_、toBool_、calcMasterDiff_）', test_DL09_, 'pure'],
     ['TC-LK-02', 'ロックが取れないときは BUSY', test_LK02_, 'gas'],
-    ['TC-AU-07', '管理者暗証番号は salt とハッシュだけが保存される', test_AU07_, 'gas'],
+    ['TC-AU-07', '管理者パスワードはスクリプトプロパティから読む。未設定・1文字なら誰も入れない。シートに残らない', test_AU07_, 'gas'],
     ['TC-MG-07', '移行 CSV（試験用）を確かめると、変更日時の順に並び記録ID が振られる', test_MG07_, 'gas'],
     ['TC-MG-08', '移行 CSV（試験用）のマスタとの差異と照合の集計', test_MG08_, 'gas'],
     ['TC-MG-09', '移行データがあるときに取込をもう一度実行すると止まる', test_MG09_, 'gas'],
@@ -70,9 +70,9 @@ function testList_() {
     ['TC-LS-07', '管理者が includeDeleted=true にすると削除済みも出る', test_LS07_, 'gas'],
     ['TC-LS-08', '削除済みの記録は設定者には NOT_FOUND、管理者には見える。getRecord の can〜', test_LS08_, 'gas'],
     ['TC-LS-09', 'HISTORY_PAGE_SIZE: 設定した件数で分ける。5〜100 の整数でなければ 20', test_LS09_, 'gas'],
-    ['TC-AU-01', '正しい暗証番号でトークンが返り、操作ログ「管理者認証」。checkAdmin が true', test_AU01_, 'gas'],
-    ['TC-AU-02', '違う暗証番号は AUTH_FAILED、操作ログ「管理者認証の失敗」', test_AU02_, 'gas'],
-    ['TC-AU-03', '5回続けて間違えると AUTH_LOCKED。正しい番号でもロック中は入れない', test_AU03_, 'gas'],
+    ['TC-AU-01', '正しいパスワードでトークンが返り、操作ログ「管理者認証」。checkAdmin が true', test_AU01_, 'gas'],
+    ['TC-AU-02', '違うパスワードは AUTH_FAILED、操作ログ「管理者認証の失敗」', test_AU02_, 'gas'],
+    ['TC-AU-03', '5回続けて間違えると AUTH_LOCKED。正しいパスワードでもロック中は入れない', test_AU03_, 'gas'],
     ['TC-AU-04', '期限切れのトークンで削除すると AUTH_REQUIRED（need=admin）', test_AU04_, 'gas'],
     ['TC-AU-05', 'トークンを発行した人と違う操作者では AUTH_REQUIRED', test_AU05_, 'gas'],
     ['TC-AU-06', 'logoutAdmin のあとは AUTH_REQUIRED', test_AU06_, 'gas'],
@@ -313,39 +313,35 @@ function test_LK02_() {
 }
 
 function test_AU07_() {
-  if (!hasFakes_()) throw skip_('ダイアログへの入力はローカル（フェイク）でだけ再現できます');
-  const keepSalt = getSetting_('ADMIN_PIN_SALT'), keepHash = getSetting_('ADMIN_PIN_HASH');
-  try {
-    __FAKES__.queuePrompt(['4826', '4826']);
-    assertEq_(menuSetAdminPin(), '設定');
-    resetExecutionCache_();
-    const salt = getSetting_('ADMIN_PIN_SALT'), hash = getSetting_('ADMIN_PIN_HASH');
-    assertTrue_(salt.length > 0, 'salt');
-    assertTrue_(/^[0-9a-f]{64}$/.test(hash), 'ハッシュの形');
-    assertEq_(hash, sha256Hex_(salt + ':4826'), 'ハッシュの値');
-    // 平文の暗証番号がどのセルにも残っていない（uuid などに数字の並びが偶然含まれることはあるので、完全一致で見る）
+  const ctx = testCtx_();
+  // 未設定・1文字のときは誰も入れず、失敗にも数えない
+  withTestPassword_(null, function () {
+    const res = authenticateAdmin(ctx.operatorId, 'anything');
+    assertEq_([res.ok, res.error.code], [false, 'AUTH_FAILED'], '未設定');
+    assertTrue_(res.error.message.indexOf('ADMIN_PASSWORD') >= 0, '設定のしかたを案内する: ' + res.error.message);
+    assertEq_(CacheService.getScriptCache().get('pinfail'), null, '未設定は失敗に数えない');
+  });
+  withTestPassword_('x', function () {
+    assertEq_(authenticateAdmin(ctx.operatorId, 'x').error.code, 'AUTH_FAILED', '1文字のパスワードは使えない');
+  });
+  // 2文字以上なら文字の種類は自由。前後の空白は無視する
+  withTestPassword_(' Ab#1 ', function () {
+    const res = authenticateAdmin(ctx.operatorId, 'Ab#1 ');
+    assertTrue_(res.ok, '前後の空白は無視: ' + JSON.stringify(res.error));
+    logoutAdmin({ operatorId: ctx.operatorId, token: res.data.token });
+    assertEq_(authenticateAdmin(ctx.operatorId, 'ab#1').error.code, 'AUTH_FAILED', '大文字と小文字は区別する');
+    // どのシートにもパスワードが残っていない
     getSpreadsheet_().getSheets().forEach(function (sh) {
       if (!sh.getLastRow()) return;
       sh.getDataRange().getValues().forEach(function (row) {
-        row.forEach(function (v) { assertTrue_(String(v).trim() !== '4826', sh.getName() + ' に暗証番号の平文があります'); });
+        row.forEach(function (v) { assertTrue_(String(v).indexOf('Ab#1') < 0, sh.getName() + ' にパスワードがあります'); });
       });
     });
-    const pinLog = readAll_('LOGS').filter(function (l) { return l.action === '管理者暗証番号の設定'; }).slice(-1)[0];
-    assertTrue_(pinLog, '操作ログ「管理者暗証番号の設定」がありません');
-    assertEq_(pinLog.detail, '{}', 'ログの内容に暗証番号を書かない');
-    // 1回目と2回目が違えば、変わらない
-    __FAKES__.queuePrompt(['1111', '2222']);
-    assertEq_(menuSetAdminPin(), '不一致');
-    resetExecutionCache_();
-    assertEq_(getSetting_('ADMIN_PIN_HASH'), hash, '不一致のときはハッシュが変わらない');
-    // 形が違えば設定しない
-    __FAKES__.queuePrompt(['12a4']);
-    assertEq_(menuSetAdminPin(), '形式エラー');
-  } finally {
-    setSetting_('ADMIN_PIN_SALT', keepSalt);
-    setSetting_('ADMIN_PIN_HASH', keepHash);
-    resetExecutionCache_();
-  }
+  });
+  // 前の版の設定キーとメニューは無い
+  assertTrue_(!SETTING_DEFAULTS.some(function (d) { return /^ADMIN_PIN_/.test(d[0]); }), '設定の初期値に ADMIN_PIN_* が残っている');
+  assertTrue_(typeof menuSetAdminPin === 'undefined' && typeof setAdminPin_ === 'undefined', '暗証番号の設定の関数が残っている');
+  assertTrue_(PUBLIC_SETTING_KEYS.indexOf('AUTH_TOKEN_MINUTES') >= 0, '画面に有効時間を返す');
 }
 
 // ---------------------------------------------------------------------
@@ -858,23 +854,26 @@ function test_LS08_() {
 }
 
 // ---------------------------------------------------------------------
-// TC-AU 管理者の認証（暗証番号はテストの中で設定し、終わったら元に戻す）
+// TC-AU 管理者の認証（パスワードはテストの中でスクリプトプロパティに入れ、終わったら元に戻す）
 // ---------------------------------------------------------------------
 
-/** テスト用の暗証番号を設定して fn を実行し、設定・失敗回数・ロックを元に戻す */
-function withTestPin_(pin, fn) {
-  const keepSalt = getSetting_('ADMIN_PIN_SALT'), keepHash = getSetting_('ADMIN_PIN_HASH');
+/**
+ * テスト用の管理者パスワードをスクリプトプロパティ ADMIN_PASSWORD に入れて fn を実行し、プロパティ・失敗回数・ロックを元に戻す。
+ * password が null なら、プロパティを消した（未設定の）状態で実行する。GAS 上で実行しても、元のパスワードに戻る
+ */
+function withTestPassword_(password, fn) {
+  const props = PropertiesService.getScriptProperties();
+  const keep = props.getProperty(ADMIN_PASSWORD_PROPERTY);
   const cache = CacheService.getScriptCache();
   try {
     cache.remove('pinfail'); cache.remove('pinlock');
-    setAdminPin_(pin);
-    resetExecutionCache_();
+    if (password === null) props.deleteProperty(ADMIN_PASSWORD_PROPERTY);
+    else props.setProperty(ADMIN_PASSWORD_PROPERTY, password);
     return fn();
   } finally {
     cache.remove('pinfail'); cache.remove('pinlock');
-    setSetting_('ADMIN_PIN_SALT', keepSalt);
-    setSetting_('ADMIN_PIN_HASH', keepHash);
-    resetExecutionCache_();
+    if (keep === null) props.deleteProperty(ADMIN_PASSWORD_PROPERTY);
+    else props.setProperty(ADMIN_PASSWORD_PROPERTY, keep);
   }
 }
 
@@ -882,7 +881,7 @@ function lastLog_() { resetExecutionCache_(); return readAll_('LOGS').slice(-1)[
 
 function test_AU01_() {
   const ctx = testCtx_();
-  withTestPin_('2468', function () {
+  withTestPassword_('2468', function () {
     const res = authenticateAdmin(ctx.operatorId, '2468');
     assertTrue_(res.ok, JSON.stringify(res.error));
     assertTrue_(res.data.token && res.data.expiresAt > new Date().getTime(), 'token と expiresAt');
@@ -898,7 +897,7 @@ function test_AU01_() {
 
 function test_AU02_() {
   const ctx = testCtx_();
-  withTestPin_('2468', function () {
+  withTestPassword_('2468', function () {
     const res = authenticateAdmin(ctx.operatorId, '1357');
     assertEq_([res.ok, res.error.code], [false, 'AUTH_FAILED']);
     assertEq_(lastLog_().action, '管理者認証の失敗', '操作ログ');
@@ -908,7 +907,7 @@ function test_AU02_() {
 
 function test_AU03_() {
   const ctx = testCtx_();
-  withTestPin_('2468', function () {
+  withTestPassword_('2468', function () {
     const max = getSettingNumber_('PIN_MAX_FAILS');
     let res;
     for (let i = 1; i <= max; i++) {
@@ -1304,5 +1303,5 @@ function seedDevData() {
 
 function menuSeedDevData() { alert_(seedDevData()); }
 
-/** ローカルプレビュー用に管理者暗証番号を設定する（tools/preview_mock.js から呼ぶ） */
-function setAdminPinForPreview_(pin) { setAdminPin_(pin); return 'ok'; }
+/** ローカルプレビュー用に管理者パスワードを設定する（tools/preview_mock.js から呼ぶ） */
+function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProperties().setProperty(ADMIN_PASSWORD_PROPERTY, password); return 'ok'; }

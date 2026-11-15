@@ -5,7 +5,7 @@
  * - google.script.run の代わりに、フェイク（tools/gas_fakes.js）の上で動く本物の Code.gs を呼ぶ。
  * - データは Tests.gs の seedDevData() が作る架空のもの（実在の人物ではない）。
  *   localStorage（キー boilerMock_v1）に保存し、再読み込みしても残す。
- * - 管理者暗証番号は 123456（Tests.gs の setAdminPinForPreview_ で設定する）。
+ * - 管理者パスワードは boiler（Tests.gs の setAdminPasswordForPreview_ でスクリプトプロパティに入れる。保存データを読んだあとも毎回入れ直す）。
  * - URL のハッシュで状態を指定できる（例: local_preview.html#tab=history&op=U02&admin=1&open=BP-20261101-001）
  *     op=入力者ID   … 操作者（op=none で未選択の状態にする）
  *     admin=1      … 管理者モードにする
@@ -18,7 +18,7 @@
   var STORAGE_KEY = 'boilerMock_v1';
   var OP_KEY = 'boilerPressure.operatorId';     // js.html と同じキー（plan/01 K-19）
   var TOKEN_KEY = 'boilerPressure.adminToken';  // js.html と同じキー（sessionStorage）
-  var PREVIEW_PIN = '123456';
+  var PREVIEW_PASSWORD = 'boiler';
   var GAS = window.__GAS__;
   var fns = GAS.fns;
   var fakes = GAS.fakes;
@@ -42,7 +42,7 @@
     call('menuSetup');
     var msg = call('seedDevData');
     if (msg) console.log('[プレビュー] ' + msg);
-    call('setAdminPinForPreview_', PREVIEW_PIN);
+    call('setAdminPasswordForPreview_', PREVIEW_PASSWORD);
     saveState();
   }
 
@@ -54,7 +54,7 @@
     var saved = null;
     try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { saved = null; }
     if (saved) {
-      try { fakes.helpers.importState(saved); return; } catch (e) { console.warn('保存データを読めないため作り直します: ' + e); }
+      try { fakes.helpers.importState(saved); call('setAdminPasswordForPreview_', PREVIEW_PASSWORD); return; } catch (e) { console.warn('保存データを読めないため作り直します: ' + e); }
     }
     seedAll();
   }
@@ -73,7 +73,7 @@
   function hasToken() { try { return !!sessionStorage.getItem(TOKEN_KEY); } catch (e) { return false; } }
 
   function authenticateAsAdmin() {
-    var res = call('authenticateAdmin', getOperatorId(), PREVIEW_PIN);
+    var res = call('authenticateAdmin', getOperatorId(), PREVIEW_PASSWORD);
     if (res === undefined) { console.warn('[プレビュー] authenticateAdmin はまだありません'); return false; }
     saveState();
     if (res && res.ok) { sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ operatorId: getOperatorId(), token: res.data.token, expiresAt: res.data.expiresAt })); return true; }

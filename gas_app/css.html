@@ -1,6 +1,6 @@
 <style>
   /* ボイラ圧力設定管理 — スタイル（css.html）
-     版: v0.8（2026/11/15。本番で「開発」バッジが消えない不具合を直した）
+     版: v0.9（2026/11/15。フェーズ9: ロッカーキー貸出管理・エネルギー使用量集計とデザインをそろえた。plan/11）
      デザイン方針: plan/05 §0（参考: 02.ロッカーキー貸出管理(Gemini)/gas_app/css.html） */
   :root {
     /* メイン（Sky） */
@@ -46,6 +46,9 @@
     /* 寸法 */
     --header-h: 56px;
     --tabbar-h: 64px;
+    /* フォント（index.html で Google Fonts を読む。読めないときは後ろのシステムフォント） */
+    --font-body: "Inter", "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, sans-serif;
+    --font-display: "Outfit", "Inter", "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, sans-serif;
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -55,7 +58,7 @@
     margin: 0;
     background: var(--bg-page);
     color: var(--text-main);
-    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+    font-family: var(--font-body);
     font-size: 16px;
     line-height: 1.6;
     /* 横のはみ出しを隠す。hidden だと GAS の枠の中でヘッダの固定（sticky）が効かなくなるため clip にする（hidden は古いブラウザ用） */
@@ -71,11 +74,15 @@
   /* ---------- ヘッダ ---------- */
   .app-header {
     position: sticky; top: 0; z-index: 100;
-    display: flex; align-items: center; gap: 8px;
-    height: var(--header-h); padding: 0 12px 0 16px;
+    height: var(--header-h);
     background: var(--bg-card); border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm);
   }
-  .app-title { margin: 0; font-size: 1rem; font-weight: 700; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-inner { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 12px; }
+  /* ロゴ: 薄い青の角丸の四角に圧力計（ロッカーキー貸出管理の .logo-icon と同じ形） */
+  .app-logo { flex: none; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: var(--radius-md); background: var(--primary-light); color: var(--primary); }
+  .app-logo svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .app-logo circle { fill: currentColor; stroke: none; }
+  .app-title { margin: 0; min-width: 0; font-family: var(--font-display); font-size: 0.98rem; font-weight: 700; letter-spacing: -0.02em; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .header-spacer { flex: 1; }
   .operator-chip {
     display: inline-flex; align-items: center; gap: 6px;
@@ -84,6 +91,7 @@
     font-weight: 700; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .operator-chip:active { background: var(--border); }
+  .operator-chip, .admin-chip { transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
   .operator-chip.is-empty { color: var(--danger); border-color: var(--danger-light); background: var(--danger-light); }
 
   /* ---------- 本文 ---------- */
@@ -104,8 +112,9 @@
     flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
     min-height: 44px; border: none; background: none; color: var(--text-muted); font-size: 0.72rem; font-weight: 700; cursor: pointer;
   }
+  .tab-btn .icon { width: 56px; height: 30px; padding: 3px 16px; border-radius: var(--radius-full); transition: background-color 0.2s; }
   .tab-btn.is-active { color: var(--primary); }
-  .tab-btn.is-active .icon { stroke-width: 2.4; }
+  .tab-btn.is-active .icon { background: var(--primary-light); stroke-width: 2.4; }
 
   /* ---------- カード ---------- */
   .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 16px; }
@@ -144,6 +153,9 @@
   .pattern-products { font-size: 0.92rem; }
   .pattern-note { font-size: 0.8rem; color: var(--text-light); }
 
+  /* 圧力の大きな数字・パターンの番号（Outfit） */
+  .current-pressure, .current-pattern, .pattern-no, .pattern-main, .detail-pressure, .record-pressure, .stepper .input, .seg-item { font-family: var(--font-display); }
+
   /* 空・準備中 */
   .empty { padding: 28px 16px; text-align: center; color: var(--text-muted); }
 
@@ -162,12 +174,15 @@
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
     min-height: 48px; padding: 0 20px; border: 1px solid transparent; border-radius: var(--radius-md);
     font-weight: 700; cursor: pointer; text-decoration: none;
+    transition: transform 0.15s, box-shadow 0.2s, background-color 0.2s, border-color 0.2s, filter 0.2s;
   }
   .btn:active { filter: brightness(0.92); }
-  .btn:disabled { background: #cbd5e1; border-color: #cbd5e1; color: #fff; cursor: not-allowed; }
-  .btn-primary { background: var(--primary-gradient); color: #fff; box-shadow: var(--shadow-md); }
+  .btn:disabled { background: #cbd5e1; border-color: #cbd5e1; color: #fff; box-shadow: none; cursor: not-allowed; }
+  .btn-primary { background: var(--primary-gradient); color: #fff; box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2); }
   .btn-secondary { background: var(--bg-card); border-color: var(--border); color: var(--secondary); }
   .btn-danger { background: var(--danger); color: #fff; }
+  /* 削除の入口（詳細の「削除する」）は赤い枠の白いボタン。確認ダイアログの最後の「削除する」だけ .btn-danger で塗る */
+  .btn-danger-outline { background: var(--bg-card); border-color: #fecaca; color: var(--danger); }
   .btn-block { display: flex; width: 100%; }
   .btn-link { min-height: 44px; padding: 0 4px; border: none; background: none; color: var(--primary); font-weight: 700; cursor: pointer; }
   .mt-16 { margin-top: 16px; }
@@ -176,15 +191,24 @@
   .notice-warn { padding: 10px 12px; border: 1px solid #fde68a; border-radius: var(--radius-md); background: #fffbeb; color: #92400e; font-size: 0.9rem; }
 
   /* ---------- モーダル ---------- */
-  .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 23, 42, 0.6); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+  .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 23, 42, 0.6); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); animation: fadeIn 0.18s ease; }
   .modal.is-sheet { align-items: flex-end; padding: 0; }
-  .modal-box { width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto; background: var(--bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
-  .modal.is-sheet .modal-box { max-width: 640px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: env(safe-area-inset-bottom); }
-  .modal-head { display: flex; align-items: center; gap: 8px; padding: 14px 8px 6px 18px; }
-  .modal-title { margin: 0; flex: 1; font-size: 1.05rem; font-weight: 800; }
-  .modal-close { width: 44px; height: 44px; border: none; background: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-  .modal-body { padding: 6px 18px 12px; }
-  .modal-actions { display: flex; gap: 10px; padding: 8px 18px 18px; }
+  .modal-box { width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto; background: var(--bg-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); animation: scaleUp 0.18s ease; }
+  .modal.is-sheet .modal-box { max-width: 640px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: env(safe-area-inset-bottom); animation: slideUp 0.22s ease; }
+  .modal-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 10px 20px; border-bottom: 1px solid var(--border); }
+  .modal-title { margin: 0; flex: 1; font-size: 1.1rem; font-weight: 700; }
+  .modal-close { width: 44px; height: 44px; border: none; border-radius: var(--radius-md); background: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s; }
+  .modal-body { padding: 16px 20px 12px; }
+  .modal-actions { display: flex; gap: 10px; padding: 8px 20px 20px; }
+  /* 上の丸いアイコン（ロッカーキー貸出管理の .modal-confirm・.auth-icon-circle）。アイコン付きのダイアログは文を中央にそろえる */
+  .modal-icon { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; margin: 4px auto 14px; border-radius: 50%; background: var(--warning-light); color: var(--warning); }
+  .modal-icon .icon { width: 28px; height: 28px; }
+  .modal-icon.is-danger { background: var(--danger-light); color: var(--danger); }
+  .modal-icon.is-primary { background: var(--primary-light); color: var(--primary); }
+  .modal.has-icon .modal-body { text-align: center; }
+  @keyframes fadeIn { from { opacity: 0; } }
+  @keyframes scaleUp { from { opacity: 0; transform: scale(0.95); } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(24px); } }
   .modal-actions .btn { flex: 1; }
 
   /* 操作者を選ぶ */
@@ -295,7 +319,7 @@
   .app-header .operator-chip { flex-shrink: 0; max-width: 48vw; padding: 0 12px; font-size: 0.88rem; } /* 名前を優先して見せ、タイトルの方を縮める */
   .operator-chip > span { overflow: hidden; text-overflow: ellipsis; }
   .notice-info { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--secondary-light); color: var(--secondary); font-size: 0.88rem; }
-  .pin-input { text-align: center; font-size: 1.6rem; letter-spacing: 0.4em; }
+  .pin-input { text-align: center; font-size: 1.1rem; }
   .modal-actions .btn { padding: 0 10px; white-space: nowrap; }
   .toggle-btn.is-on { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
   .log-list { display: flex; flex-direction: column; gap: 8px; }
@@ -306,11 +330,28 @@
   .editor .field { margin-bottom: 16px; }
 
   /* ---------- トースト・ローディング ---------- */
+  /* トースト: 白地に左4pxの色の帯（成功=緑、注意=黄、お知らせ=青、エラー=赤）。スマホはタブバーのすぐ上、PC は右下 */
   .toast-area { position: fixed; left: 16px; right: 16px; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 12px); z-index: 1100; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
-  .toast { max-width: 440px; padding: 10px 18px; border-radius: var(--radius-full); background: var(--text-main); color: #fff; font-size: 0.9rem; font-weight: 700; box-shadow: var(--shadow-lg); }
-  .loading-overlay { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; background: rgba(248, 250, 252, 0.55); }
-  .loading-overlay.is-visible { display: flex; }
-  .spinner { width: 40px; height: 40px; border: 4px solid var(--primary-light); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .toast {
+    display: flex; align-items: center; gap: 8px; width: 100%; max-width: 400px; padding: 12px 16px;
+    border: 1px solid var(--border); border-left: 4px solid var(--success); border-radius: var(--radius-md);
+    background: var(--bg-card); color: var(--text-main); font-size: 0.92rem; font-weight: 700; box-shadow: var(--shadow-lg);
+    animation: toastIn 0.25s ease;
+  }
+  .toast .icon { width: 20px; height: 20px; color: var(--success); }
+  .toast-warning { border-left-color: var(--warning); }
+  .toast-warning .icon { color: var(--warning); }
+  .toast-info { border-left-color: var(--primary); }
+  .toast-info .icon { color: var(--primary); }
+  .toast-error { border-left-color: var(--danger); }
+  .toast-error .icon { color: var(--danger); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } }
+  /* ローディング: 白く半透明の覆いをぼかす。すぐ終わる通信でちらつかないよう、見えるのは少し遅らせる（押せなくなるのはすぐ） */
+  .loading-overlay { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.72); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+  .loading-overlay.is-visible { display: flex; animation: fadeIn 0.2s ease 0.15s both; }
+  .loading-box { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .spinner { width: 44px; height: 44px; border: 3px solid var(--primary-light); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .loading-text { margin: 0; font-size: 0.9rem; font-weight: 700; color: var(--text-muted); }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ==================================================================
@@ -318,8 +359,9 @@
      押せる部品 44px 以上、入力欄の文字 16px 以上はどの幅でも守る
      ================================================================== */
   @media (min-width: 768px) {
-    .app-header { padding: 0 20px 0 24px; }
-    .app-title { font-size: 1.1rem; }
+    .header-inner { gap: 10px; padding: 0 20px 0 24px; }
+    .app-logo { width: 38px; height: 38px; }
+    .app-title { font-size: 1.15rem; }
     .app-header .operator-chip { max-width: 240px; }
     .admin-word { display: inline; }
     .app-main { max-width: 960px; padding-left: 24px; padding-right: 24px; }
@@ -345,17 +387,27 @@
   }
 
   @media (min-width: 1024px) {
-    :root { --tabbar-h: 0px; }
-    .app-header { padding: 0 24px 0 32px; }
-    .app-header .operator-chip { max-width: 200px; }
-    .app-main { max-width: 1200px; padding: 24px 32px 40px; }
-    /* タブ: ヘッダの中（タイトルの右）に並べる */
-    .tabbar {
-      position: static; align-self: stretch; margin-left: 24px;
-      gap: 4px; height: auto; padding-bottom: 0; background: none; border-top: none; box-shadow: none;
+    :root { --tabbar-h: 0px; --header-h: 88px; }
+    /* ヘッダ: 灰色の帯の中に、角丸16pxの白いカードとして浮かせる（ロッカーキー貸出管理・エネルギー使用量集計と同じ形） */
+    .app-header { padding: 12px 32px 8px; background: var(--bg-page); border-bottom: none; box-shadow: none; }
+    .header-inner {
+      max-width: 1136px; margin: 0 auto; gap: 12px; padding: 0 12px 0 16px;
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
     }
-    .tab-btn { flex: none; flex-direction: row; gap: 6px; padding: 0 14px; font-size: 0.92rem; border-bottom: 3px solid transparent; }
-    .tab-btn.is-active { border-bottom-color: var(--primary); }
+    .app-logo { width: 40px; height: 40px; }
+    .app-logo svg { width: 24px; height: 24px; }
+    .app-title { font-size: 1.3rem; }
+    .app-header .operator-chip { max-width: 200px; }
+    .app-main { max-width: 1200px; padding: 16px 32px 40px; }
+    /* タブ: ヘッダの右に、セグメントの形（灰色の枠の中で、選んだタブを白く浮かせる。ロッカーの .app-tabs） */
+    .tabbar {
+      position: static; flex: none; gap: 2px; height: auto; padding: 4px;
+      background: var(--bg-page); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: none;
+    }
+    .tab-btn { flex: none; flex-direction: row; gap: 6px; padding: 0 14px; border-radius: var(--radius-sm); font-size: 0.9rem; transition: background-color 0.2s, color 0.2s; }
+    .tab-btn .icon { width: 18px; height: 18px; padding: 0; border-radius: 0; }
+    .tab-btn.is-active { background: var(--bg-card); box-shadow: var(--shadow-sm); }
+    .tab-btn.is-active .icon { background: none; }
     .home-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px; }
     .pattern-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     /* 入力: 左（パターン・燃料・圧力）｜右（日時・設定者・品種・備考） */
@@ -387,14 +439,26 @@
     /* ダイアログ: 下から出さずに画面の中央 */
     .modal.is-sheet { align-items: center; padding: 16px; }
     .modal.is-sheet .modal-box { max-width: 560px; border-radius: var(--radius-lg); padding-bottom: 0; }
-    .toast-area { bottom: 24px; }
+    .toast-area { left: auto; right: 24px; bottom: 24px; align-items: flex-end; }
+    .toast { width: auto; min-width: 280px; max-width: 360px; }
   }
 
   /* マウスで操作する端末: 乗せたときの色 */
   @media (hover: hover) and (pointer: fine) {
     .record-card[data-record]:hover { background: var(--primary-light); }
     .tab-btn:hover, .btn-link:hover { color: var(--primary); }
-    .btn-secondary:hover, .pager-btn:not(:disabled):not(.is-current):hover, .seg-item:hover, .operator-chip:hover, .admin-chip:not(.is-admin):hover { border-color: var(--primary); }
-    .btn-primary:hover { filter: brightness(1.05); }
+    .pager-btn:not(:disabled):not(.is-current):hover, .seg-item:hover, .operator-chip:hover, .admin-chip:not(.is-admin):hover { border-color: var(--primary); }
+    /* ボタン: 乗せると少し浮く（ロッカーキー貸出管理と同じ） */
+    .btn:not(:disabled):hover { transform: translateY(-1px); }
+    .btn-primary:not(:disabled):hover { box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); }
+    .btn-secondary:not(:disabled):hover { background: var(--secondary-light); border-color: #cbd5e1; }
+    .btn-danger:not(:disabled):hover { background: var(--danger-hover); }
+    .btn-danger-outline:not(:disabled):hover { background: var(--danger-light); }
+    .modal-close:hover { background: var(--secondary-light); }
+  }
+
+  /* 動きを減らす設定の端末では、アニメーションを止める */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
   }
 </style>
