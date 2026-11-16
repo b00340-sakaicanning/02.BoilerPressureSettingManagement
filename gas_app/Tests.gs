@@ -93,7 +93,10 @@ function testList_() {
     ['TC-BK-03', 'バックアップのトリガーを2回設定しても1つだけ', test_BK03_, 'gas'],
     ['TC-ST-01', '履歴シート: A〜I 列が人の見る項目で、J 列以降は列のグループ', test_ST01_, 'gas'],
     ['TC-ST-02', '履歴シート: 削除済みの行は灰色＋取り消し線、マスタとの差異は背景色（条件付き書式）', test_ST02_, 'gas'],
-    ['TC-ST-03', 'どのシートも保護（警告だけ）が1つ付いている', test_ST03_, 'gas']
+    ['TC-ST-03', 'どのシートも保護（警告だけ）が1つ付いている', test_ST03_, 'gas'],
+    ['TC-OP-01', '入力者マスタ: B列セルのフォント下線書式から isUnderline を判定する', test_OP01_, 'gas'],
+    ['TC-OP-02', '記録登録・修正: 設定者が下線持ちなら履歴シート F列セルに下線書式を設定する', test_OP02_, 'gas'],
+    ['TC-OP-03', 'getInitialData: operators の各要素に isUnderline が含まれる', test_OP03_, 'gas']
   ];
 }
 
@@ -1235,6 +1238,68 @@ function test_ST03_() {
   });
 }
 
+function test_OP01_() {
+  // 入力者マスタの下線判定テスト
+  const sh = getSheet_('OPERATORS');
+  const info = headerInfo_('OPERATORS');
+  const rowU02 = findRowIndex_('OPERATORS', 'operatorId', 'U02');
+  const rowU01 = findRowIndex_('OPERATORS', 'operatorId', 'U01');
+  assertTrue_(rowU02 > 1 && rowU01 > 1, 'U01 と U02 が存在する');
+  sh.getRange(rowU02, info.cols.shortName, 1, 1).setFontLine('underline');
+  sh.getRange(rowU01, info.cols.shortName, 1, 1).setFontLine('none');
+  resetExecutionCache_();
+  const op2 = findOperator_('U02');
+  const op1 = findOperator_('U01');
+  assertTrue_(op2 && op2.isUnderline === true, 'U02 は下線あり');
+  assertTrue_(op1 && op1.isUnderline === false, 'U01 は下線なし');
+}
+
+function test_OP02_() {
+  // 記録登録・修正時の F列セル書式設定テスト
+  const shRec = getSheet_('RECORDS');
+  const infoRec = headerInfo_('RECORDS');
+  const ctx2 = { operatorId: 'U02', token: null };
+  const ctx1 = { operatorId: 'U01', token: null };
+  const today = formatDate_(new Date());
+
+  // 1. 下線持ちの U02 で新規登録
+  const res2 = createRecord(ctx2, { date: today, time: '10:00', pattern: 2, fuel: 'ガス', pressure: 0.67 });
+  assertTrue_(res2.ok, 'createRecord 成功: ' + JSON.stringify(res2.error));
+  const row2 = findRowIndex_('RECORDS', 'recordId', res2.data.recordId);
+  assertTrue_(row2 > 1, '記録2が作成された');
+  const fl2 = shRec.getRange(row2, infoRec.cols.setterName, 1, 1).getFontLines()[0][0];
+  assertEq_(fl2, 'underline', 'U02の登録行のF列セルは下線');
+
+  // 2. 下線なしの U01 で新規登録
+  const res1 = createRecord(ctx1, { date: today, time: '10:05', pattern: 2, fuel: 'ガス', pressure: 0.67 });
+  assertTrue_(res1.ok, 'createRecord 成功: ' + JSON.stringify(res1.error));
+  const row1 = findRowIndex_('RECORDS', 'recordId', res1.data.recordId);
+  assertTrue_(row1 > 1, '記録1が作成された');
+  const fl1 = shRec.getRange(row1, infoRec.cols.setterName, 1, 1).getFontLines()[0][0];
+  assertEq_(fl1, 'none', 'U01の登録行のF列セルは下線なし');
+
+  // 3. 管理者で設定者を U01 から U02 に修正
+  const token = withTestPassword_('testpass', function () {
+    const authRes = authenticateAdmin('U01', 'testpass');
+    return authRes.data.token;
+  });
+  const adminCtx = { operatorId: 'U01', token: token };
+  const upRes = updateRecord(adminCtx, res1.data.recordId, { setterId: 'U02' }, res1.data.version);
+  assertTrue_(upRes.ok, 'updateRecord 成功: ' + JSON.stringify(upRes.error));
+  const flUpdated = shRec.getRange(row1, infoRec.cols.setterName, 1, 1).getFontLines()[0][0];
+  assertEq_(flUpdated, 'underline', '設定者をU02に変更した行のF列セルは下線に更新される');
+}
+
+function test_OP03_() {
+  // getInitialData の返却データテスト
+  const res = getInitialData({ operatorId: 'U01' });
+  assertTrue_(res.ok, 'getInitialData 成功');
+  assertTrue_(res.data && res.data.operators && res.data.operators.length > 0, 'operators が返る');
+  res.data.operators.forEach(function (o) {
+    assertTrue_(typeof o.isUnderline === 'boolean', o.operatorId + ' に boolean の isUnderline がある: ' + o.isUnderline);
+  });
+}
+
 // ---------------------------------------------------------------------
 // 開発用データ（架空。実在の人物ではない）
 // ---------------------------------------------------------------------
@@ -1266,7 +1331,15 @@ function seedDevData() {
   resetExecutionCache_();
   return withLock_(function () {
     const msgs = [];
-    if (!readAll_('OPERATORS').length) { appendRows_('OPERATORS', DEV_OPERATORS_); msgs.push('入力者 ' + DEV_OPERATORS_.length + '名'); }
+    if (!readAll_('OPERATORS').length) {
+      appendRows_('OPERATORS', DEV_OPERATORS_);
+      // U02（B）に下線を設定（フェーズ10の検証用）
+      const shOp = getSheet_('OPERATORS');
+      const infoOp = headerInfo_('OPERATORS');
+      shOp.getRange(3, infoOp.cols.shortName, 1, 1).setFontLine('underline');
+      resetExecutionCache_();
+      msgs.push('入力者 ' + DEV_OPERATORS_.length + '名');
+    }
     if (!readAll_('PATTERNS').length) { appendRows_('PATTERNS', DEV_PATTERNS_); msgs.push('パターン ' + DEV_PATTERNS_.length + '件'); }
     if (readAll_('RECORDS').length) {
       msgs.push('記録はすでにあるため追加しない');
@@ -1295,6 +1368,14 @@ function seedDevData() {
         });
       }
       appendRows_('RECORDS', recs);
+      // U02 の記録の F列セルに下線書式を設定（フェーズ10）
+      const shRec = getSheet_('RECORDS');
+      const infoRec = headerInfo_('RECORDS');
+      recs.forEach(function (r, idx) {
+        if (r.setterId === 'U02') {
+          shRec.getRange(2 + idx, infoRec.cols.setterName, 1, 1).setFontLine('underline');
+        }
+      });
       msgs.push('記録 ' + recs.length + '件');
     }
     return '開発用データ: ' + msgs.join('、');

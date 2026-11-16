@@ -229,6 +229,8 @@
   .operator-btn .short { display: block; font-size: 1.15rem; }
   .operator-btn .full { display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-muted); }
   .operator-btn.is-selected { border: 2px solid var(--primary); background: var(--primary-light); }
+  /* 記入称の下線（フェーズ10） */
+  .is-underline { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
 
   /* ---------- 入力（S-02） ---------- */
   .field { margin-bottom: 20px; }
@@ -724,6 +726,13 @@
     };
     Range.prototype.setNumberFormats = function (f) { const self = this; this._each(function (ri, ci, i, j) { self.s._setFmt(ri, ci, f[i][j]); }); return this; };
     Range.prototype.setNumberFormat = function (f) { const self = this; this._each(function (ri, ci) { self.s._setFmt(ri, ci, f); }); return this; };
+    Range.prototype.getFontLines = function () {
+      const out = [];
+      for (let i = 0; i < this.nr; i++) { const row = []; for (let j = 0; j < this.nc; j++) row.push(this.s._fontLine(this.r - 1 + i, this.c - 1 + j)); out.push(row); }
+      return out;
+    };
+    Range.prototype.setFontLine = function (line) { const self = this; this._each(function (ri, ci) { self.s._setFontLine(ri, ci, line); }); return this; };
+    Range.prototype.setFontLines = function (lines) { const self = this; this._each(function (ri, ci, i, j) { self.s._setFontLine(ri, ci, lines[i][j]); }); return this; };
     Range.prototype.setFontWeight = function () { return this; };
     Range.prototype.insertCheckboxes = function () { return this; }; // 見た目だけの機能なので、フェイクでは何もしない
     Range.prototype.setBackground = function () { return this; };
@@ -742,13 +751,15 @@
     };
 
     function Sheet(name, state) {
-      this.st = state || { name: name, data: [], fmts: [], maxRows: 1000, maxCols: 26, hidden: false, protections: 0 };
+      this.st = state || { name: name, data: [], fmts: [], fontLines: [], maxRows: 1000, maxCols: 26, hidden: false, protections: 0 };
     }
     Sheet.prototype.getName = function () { return this.st.name; };
     Sheet.prototype._get = function (r, c) { const row = this.st.data[r]; const v = row ? row[c] : undefined; return v === undefined || v === null ? '' : v; };
     Sheet.prototype._raw = function (r, c, v) { while (this.st.data.length <= r) this.st.data.push([]); this.st.data[r][c] = v; };
     Sheet.prototype._fmt = function (r, c) { const row = this.st.fmts[r]; return (row && row[c]) || 'General'; };
     Sheet.prototype._setFmt = function (r, c, f) { while (this.st.fmts.length <= r) this.st.fmts.push([]); this.st.fmts[r][c] = f; };
+    Sheet.prototype._fontLine = function (r, c) { const row = this.st.fontLines ? this.st.fontLines[r] : null; return (row && row[c]) || 'none'; };
+    Sheet.prototype._setFontLine = function (r, c, fl) { this.st.fontLines = this.st.fontLines || []; while (this.st.fontLines.length <= r) this.st.fontLines.push([]); this.st.fontLines[r][c] = fl; };
     Sheet.prototype._set = function (r, c, v) {
       if (typeof v === 'string') {
         if (v.charAt(0) === "'") v = v.substr(1);
@@ -1079,7 +1090,7 @@ function getInitialData(ctx) {
         return { pattern: p.pattern, mainPressure: p.mainPressure, subPressure: p.subPressure, products: p.products, note: p.note,
           revisedAt: formatDate_(p.revisedAt), sortOrder: p.sortOrder, active: p.active };
       }),
-      operators: getOperators_().map(function (o) { return { operatorId: o.operatorId, shortName: o.shortName, fullName: o.fullName, sortOrder: o.sortOrder, active: o.active }; }),
+      operators: getOperators_().map(function (o) { return { operatorId: o.operatorId, shortName: o.shortName, fullName: o.fullName, sortOrder: o.sortOrder, active: o.active, isUnderline: !!o.isUnderline }; }),
       products: getProducts_().map(function (p) { return { name: p.name, sortOrder: p.sortOrder, active: p.active }; }),
       operatorValid: operatorValid,
       isAdmin: operatorValid ? verifyAdmin_(ctx) : false,
@@ -1441,10 +1452,15 @@ function readAll_(key) {
   const out = [];
   if (last >= 2) {
     const values = sh.getRange(2, 1, last - 1, info.width).getValues();
+    let opFontLines = null;
+    if (key === 'OPERATORS' && info.cols.shortName) {
+      try { opFontLines = sh.getRange(2, info.cols.shortName, last - 1, 1).getFontLines(); } catch (e) { opFontLines = null; }
+    }
     values.forEach(function (row, i) {
       if (row.every(function (v) { return v === '' || v === null; })) return;
       const obj = { _row: i + 2 };
       COLUMNS[key].forEach(function (c) { obj[c[1]] = fromCell_(c[2], row[info.cols[c[1]] - 1]); });
+      if (opFontLines) obj.isUnderline = !!(opFontLines[i] && opFontLines[i][0] === 'underline');
       out.push(obj);
     });
   }
@@ -1476,10 +1492,10 @@ function rowFormats_(key) {
   return f;
 }
 
-/** 複数行を末尾に足す。書式を先に設定してから値を書く（"08:05" が時刻に変わらないようにする） */
+/** 複数行を末尾に足す。書式を先に設定してから値を書く（"08:05" が時刻に変わらないようにする）。追加した先頭行番号を返す */
 function appendRows_(key, objs) {
-  if (!objs.length) return;
-  withLock_(function () {
+  if (!objs.length) return -1;
+  return withLock_(function () {
     const sh = getSheet_(key);
     const info = headerInfo_(key);
     const start = sh.getLastRow() + 1;
@@ -1490,10 +1506,11 @@ function appendRows_(key, objs) {
     range.setNumberFormats(objs.map(function () { return fmt; }));
     range.setValues(objs.map(function (o) { return objectToRow_(key, o, null); }));
     if (EXEC_.rows) delete EXEC_.rows[key];
+    return start;
   });
 }
 
-function appendRow_(key, obj) { appendRows_(key, [obj]); }
+function appendRow_(key, obj) { return appendRows_(key, [obj]); }
 
 /** 指定した行の、obj に含まれるキーの列だけを書き換える */
 function updateRow_(key, row, obj) {
@@ -1518,6 +1535,21 @@ function replaceAllRows_(key, objs) {
     if (EXEC_.rows) delete EXEC_.rows[key];
     appendRows_(key, objs);
   });
+}
+
+/** 履歴シートの指定行の設定者セルに、該当入力者が下線持ちなら下線（underline / none）を設定する（docs/03 §2.1、フェーズ10） */
+function setRecordSetterUnderline_(row, setterId) {
+  try {
+    const sh = getSheet_('RECORDS');
+    const info = headerInfo_('RECORDS');
+    const col = info.cols.setterName;
+    if (!col || !row || row < 2) return;
+    const op = setterId ? findOperator_(setterId) : null;
+    const isUnderline = !!(op && op.isUnderline);
+    sh.getRange(row, col, 1, 1).setFontLine(isUnderline ? 'underline' : 'none');
+  } catch (e) {
+    // 書式設定のエラーで本体処理を止めない
+  }
 }
 
 // =====================================================
@@ -1809,7 +1841,8 @@ function createRecord(ctx, payload) {
         createdAt: now, createdBy: String(ctx.operatorId), updatedAt: now, updatedBy: String(ctx.operatorId),
         version: 1, deleted: false, deletedAt: null, deletedBy: ''
       };
-      appendRow_('RECORDS', rec);
+      const addedRow = appendRow_('RECORDS', rec);
+      setRecordSetterUnderline_(addedRow, rec.setterId);
       writeLog_(ctx, role, 'CREATE', rec.recordId, { pattern: rec.pattern, fuel: rec.fuel, pressure: rec.pressure, masterDiff: rec.masterDiff });
       return { recordId: rec.recordId, version: rec.version, masterDiff: rec.masterDiff };
     });
@@ -1869,6 +1902,7 @@ function updateRecord(ctx, recordId, payload, version) {
         updatedAt: now, updatedBy: String(ctx.operatorId), version: Number(r.version) + 1
       };
       updateRow_('RECORDS', r._row, upd);
+      if (changes.setterId) setRecordSetterUnderline_(r._row, upd.setterId);
       writeLog_(ctx, role, 'UPDATE', r.recordId, { changes: changes });
       return { recordId: r.recordId, version: upd.version, masterDiff: upd.masterDiff, unchanged: false };
     });
@@ -2593,7 +2627,10 @@ function testList_() {
     ['TC-BK-03', 'バックアップのトリガーを2回設定しても1つだけ', test_BK03_, 'gas'],
     ['TC-ST-01', '履歴シート: A〜I 列が人の見る項目で、J 列以降は列のグループ', test_ST01_, 'gas'],
     ['TC-ST-02', '履歴シート: 削除済みの行は灰色＋取り消し線、マスタとの差異は背景色（条件付き書式）', test_ST02_, 'gas'],
-    ['TC-ST-03', 'どのシートも保護（警告だけ）が1つ付いている', test_ST03_, 'gas']
+    ['TC-ST-03', 'どのシートも保護（警告だけ）が1つ付いている', test_ST03_, 'gas'],
+    ['TC-OP-01', '入力者マスタ: B列セルのフォント下線書式から isUnderline を判定する', test_OP01_, 'gas'],
+    ['TC-OP-02', '記録登録・修正: 設定者が下線持ちなら履歴シート F列セルに下線書式を設定する', test_OP02_, 'gas'],
+    ['TC-OP-03', 'getInitialData: operators の各要素に isUnderline が含まれる', test_OP03_, 'gas']
   ];
 }
 
@@ -3735,6 +3772,68 @@ function test_ST03_() {
   });
 }
 
+function test_OP01_() {
+  // 入力者マスタの下線判定テスト
+  const sh = getSheet_('OPERATORS');
+  const info = headerInfo_('OPERATORS');
+  const rowU02 = findRowIndex_('OPERATORS', 'operatorId', 'U02');
+  const rowU01 = findRowIndex_('OPERATORS', 'operatorId', 'U01');
+  assertTrue_(rowU02 > 1 && rowU01 > 1, 'U01 と U02 が存在する');
+  sh.getRange(rowU02, info.cols.shortName, 1, 1).setFontLine('underline');
+  sh.getRange(rowU01, info.cols.shortName, 1, 1).setFontLine('none');
+  resetExecutionCache_();
+  const op2 = findOperator_('U02');
+  const op1 = findOperator_('U01');
+  assertTrue_(op2 && op2.isUnderline === true, 'U02 は下線あり');
+  assertTrue_(op1 && op1.isUnderline === false, 'U01 は下線なし');
+}
+
+function test_OP02_() {
+  // 記録登録・修正時の F列セル書式設定テスト
+  const shRec = getSheet_('RECORDS');
+  const infoRec = headerInfo_('RECORDS');
+  const ctx2 = { operatorId: 'U02', token: null };
+  const ctx1 = { operatorId: 'U01', token: null };
+  const today = formatDate_(new Date());
+
+  // 1. 下線持ちの U02 で新規登録
+  const res2 = createRecord(ctx2, { date: today, time: '10:00', pattern: 2, fuel: 'ガス', pressure: 0.67 });
+  assertTrue_(res2.ok, 'createRecord 成功: ' + JSON.stringify(res2.error));
+  const row2 = findRowIndex_('RECORDS', 'recordId', res2.data.recordId);
+  assertTrue_(row2 > 1, '記録2が作成された');
+  const fl2 = shRec.getRange(row2, infoRec.cols.setterName, 1, 1).getFontLines()[0][0];
+  assertEq_(fl2, 'underline', 'U02の登録行のF列セルは下線');
+
+  // 2. 下線なしの U01 で新規登録
+  const res1 = createRecord(ctx1, { date: today, time: '10:05', pattern: 2, fuel: 'ガス', pressure: 0.67 });
+  assertTrue_(res1.ok, 'createRecord 成功: ' + JSON.stringify(res1.error));
+  const row1 = findRowIndex_('RECORDS', 'recordId', res1.data.recordId);
+  assertTrue_(row1 > 1, '記録1が作成された');
+  const fl1 = shRec.getRange(row1, infoRec.cols.setterName, 1, 1).getFontLines()[0][0];
+  assertEq_(fl1, 'none', 'U01の登録行のF列セルは下線なし');
+
+  // 3. 管理者で設定者を U01 から U02 に修正
+  const token = withTestPassword_('testpass', function () {
+    const authRes = authenticateAdmin('U01', 'testpass');
+    return authRes.data.token;
+  });
+  const adminCtx = { operatorId: 'U01', token: token };
+  const upRes = updateRecord(adminCtx, res1.data.recordId, { setterId: 'U02' }, res1.data.version);
+  assertTrue_(upRes.ok, 'updateRecord 成功: ' + JSON.stringify(upRes.error));
+  const flUpdated = shRec.getRange(row1, infoRec.cols.setterName, 1, 1).getFontLines()[0][0];
+  assertEq_(flUpdated, 'underline', '設定者をU02に変更した行のF列セルは下線に更新される');
+}
+
+function test_OP03_() {
+  // getInitialData の返却データテスト
+  const res = getInitialData({ operatorId: 'U01' });
+  assertTrue_(res.ok, 'getInitialData 成功');
+  assertTrue_(res.data && res.data.operators && res.data.operators.length > 0, 'operators が返る');
+  res.data.operators.forEach(function (o) {
+    assertTrue_(typeof o.isUnderline === 'boolean', o.operatorId + ' に boolean の isUnderline がある: ' + o.isUnderline);
+  });
+}
+
 // ---------------------------------------------------------------------
 // 開発用データ（架空。実在の人物ではない）
 // ---------------------------------------------------------------------
@@ -3766,7 +3865,15 @@ function seedDevData() {
   resetExecutionCache_();
   return withLock_(function () {
     const msgs = [];
-    if (!readAll_('OPERATORS').length) { appendRows_('OPERATORS', DEV_OPERATORS_); msgs.push('入力者 ' + DEV_OPERATORS_.length + '名'); }
+    if (!readAll_('OPERATORS').length) {
+      appendRows_('OPERATORS', DEV_OPERATORS_);
+      // U02（B）に下線を設定（フェーズ10の検証用）
+      const shOp = getSheet_('OPERATORS');
+      const infoOp = headerInfo_('OPERATORS');
+      shOp.getRange(3, infoOp.cols.shortName, 1, 1).setFontLine('underline');
+      resetExecutionCache_();
+      msgs.push('入力者 ' + DEV_OPERATORS_.length + '名');
+    }
     if (!readAll_('PATTERNS').length) { appendRows_('PATTERNS', DEV_PATTERNS_); msgs.push('パターン ' + DEV_PATTERNS_.length + '件'); }
     if (readAll_('RECORDS').length) {
       msgs.push('記録はすでにあるため追加しない');
@@ -3795,6 +3902,14 @@ function seedDevData() {
         });
       }
       appendRows_('RECORDS', recs);
+      // U02 の記録の F列セルに下線書式を設定（フェーズ10）
+      const shRec = getSheet_('RECORDS');
+      const infoRec = headerInfo_('RECORDS');
+      recs.forEach(function (r, idx) {
+        if (r.setterId === 'U02') {
+          shRec.getRange(2 + idx, infoRec.cols.setterName, 1, 1).setFontLine('underline');
+        }
+      });
       msgs.push('記録 ' + recs.length + '件');
     }
     return '開発用データ: ' + msgs.join('、');
@@ -3806,7 +3921,7 @@ function menuSeedDevData() { alert_(seedDevData()); }
 /** ローカルプレビュー用に管理者パスワードを設定する（tools/preview_mock.js から呼ぶ） */
 function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProperties().setProperty(ADMIN_PASSWORD_PROPERTY, password); return 'ok'; }
 
-  return { fakes: __fakes, fns: { AppError: AppError, doGet: doGet, include: include, handle_: handle_, getInitialData: getInitialData, getHome: getHome, getSettings_: getSettings_, getSetting_: getSetting_, getSettingNumber_: getSettingNumber_, setSetting_: setSetting_, resetExecutionCache_: resetExecutionCache_, alert_: alert_, pad2_: pad2_, isDate_: isDate_, formatDate_: formatDate_, formatDateTime_: formatDateTime_, formatYmd_: formatYmd_, parseDate_: parseDate_, toDate_: toDate_, normalizeTime_: normalizeTime_, combineDateTime_: combineDateTime_, round2_: round2_, toHundredths_: toHundredths_, toBool_: toBool_, sha256Hex_: sha256Hex_, uuid_: uuid_, columnLetter_: columnLetter_, getSpreadsheet_: getSpreadsheet_, getSheet_: getSheet_, withLock_: withLock_, headerInfo_: headerInfo_, columnType_: columnType_, fromCell_: fromCell_, toCell_: toCell_, readAll_: readAll_, findRowIndex_: findRowIndex_, objectToRow_: objectToRow_, rowFormats_: rowFormats_, appendRows_: appendRows_, appendRow_: appendRow_, updateRow_: updateRow_, replaceAllRows_: replaceAllRows_, bySortOrder_: bySortOrder_, getPatterns_: getPatterns_, getOperators_: getOperators_, getProducts_: getProducts_, findPattern_: findPattern_, findOperator_: findOperator_, findOperatorByShortName_: findOperatorByShortName_, findProduct_: findProduct_, operatorsById_: operatorsById_, adminPassword_: adminPassword_, verifyOperator_: verifyOperator_, verifyAdmin_: verifyAdmin_, roleOf_: roleOf_, requireAdmin_: requireAdmin_, adminTokenInfo_: adminTokenInfo_, authenticateAdmin: authenticateAdmin, checkAdmin: checkAdmin, logoutAdmin: logoutAdmin, pickRecordInput_: pickRecordInput_, validateRecord_: validateRecord_, formatRecordId_: formatRecordId_, nextSeqFromIds_: nextSeqFromIds_, nextRecordId_: nextRecordId_, calcMasterDiff_: calcMasterDiff_, createRecord: createRecord, findRecordForWrite_: findRecordForWrite_, checkVersion_: checkVersion_, denyEdit_: denyEdit_, updateRecord: updateRecord, deleteRecord: deleteRecord, restoreRecord: restoreRecord, publicSettings_: publicSettings_, changedAtMs_: changedAtMs_, sortRecords_: sortRecords_, activeRecordsSorted_: activeRecordsSorted_, operatorName_: operatorName_, toClientRecord_: toClientRecord_, historyPageSize_: historyPageSize_, listRecords: listRecords, recordPermissions_: recordPermissions_, getRecord: getRecord, writeLog_: writeLog_, readLogs_: readLogs_, listOperationLogs: listOperationLogs, csvToObjects_: csvToObjects_, readMigrationFiles_: readMigrationFiles_, isTwoDecimals_: isTwoDecimals_, buildMigration_: buildMigration_, migrationCheck_: migrationCheck_, formatMigrationCheck_: formatMigrationCheck_, importMigration_: importMigration_, menuImportMigration: menuImportMigration, backupNow_: backupNow_, runMonthlyBackup: runMonthlyBackup, menuBackupNow: menuBackupNow, menuSetupBackupTrigger: menuSetupBackupTrigger, onOpen: onOpen, menuSetup: menuSetup, setupRecordsSheetView_: setupRecordsSheetView_, ensureSettings_: ensureSettings_, ensureInitialProducts_: ensureInitialProducts_, assertEq_: assertEq_, assertTrue_: assertTrue_, assertThrows_: assertThrows_, testList_: testList_, runAllTests: runAllTests, menuRunAllTests: menuRunAllTests, skip_: skip_, hasFakes_: hasFakes_, sheetCounts_: sheetCounts_, test_DL01_: test_DL01_, test_DL02_: test_DL02_, test_DL03_: test_DL03_, test_DL04_: test_DL04_, test_DL05_: test_DL05_, test_DL06_: test_DL06_, test_DL07_: test_DL07_, test_DL08_: test_DL08_, test_DL09_: test_DL09_, test_LK02_: test_LK02_, test_AU07_: test_AU07_, migrationFixture_: migrationFixture_, test_MG07_: test_MG07_, test_MG08_: test_MG08_, test_MG09_: test_MG09_, test_MG10_: test_MG10_, test_MG11_: test_MG11_, testCtx_: testCtx_, addTestRecord_: addTestRecord_, removeTestRecords_: removeTestRecords_, test_QY01_: test_QY01_, test_QY02_: test_QY02_, test_QY03_: test_QY03_, test_QY04_: test_QY04_, validPayload_: validPayload_, removeRecordsByIds_: removeRecordsByIds_, expectValidation_: expectValidation_, test_IN01_: test_IN01_, test_IN03_: test_IN03_, test_IN04_: test_IN04_, test_IN05_: test_IN05_, test_IN06_: test_IN06_, test_IN07_: test_IN07_, test_IN08_: test_IN08_, test_IN10_: test_IN10_, test_IN12_: test_IN12_, adminCtxForTest_: adminCtxForTest_, dropTestToken_: dropTestToken_, expectedRows_: expectedRows_, ids_: ids_, test_LS01_: test_LS01_, test_LS02_: test_LS02_, test_LS09_: test_LS09_, test_LS03_: test_LS03_, test_LS04_: test_LS04_, test_LS05_: test_LS05_, test_LS06_: test_LS06_, test_LS07_: test_LS07_, test_LS08_: test_LS08_, withTestPassword_: withTestPassword_, lastLog_: lastLog_, test_AU01_: test_AU01_, test_AU02_: test_AU02_, test_AU03_: test_AU03_, test_AU04_: test_AU04_, test_AU05_: test_AU05_, test_AU06_: test_AU06_, withTestRecord_: withTestRecord_, recordById_: recordById_, test_ED01_: test_ED01_, test_ED02_: test_ED02_, test_ED03_: test_ED03_, test_ED04_: test_ED04_, test_ED05_: test_ED05_, test_ED06_: test_ED06_, test_ED07_: test_ED07_, test_ED08_: test_ED08_, test_ED09_: test_ED09_, test_ED10_: test_ED10_, test_LK01_: test_LK01_, test_LG01_: test_LG01_, withBackupFolder_: withBackupFolder_, filesIn_: filesIn_, test_BK01_: test_BK01_, test_BK02_: test_BK02_, test_BK03_: test_BK03_, test_ST01_: test_ST01_, test_ST02_: test_ST02_, test_ST03_: test_ST03_, seedDevData: seedDevData, menuSeedDevData: menuSeedDevData, setAdminPasswordForPreview_: setAdminPasswordForPreview_ } };
+  return { fakes: __fakes, fns: { AppError: AppError, doGet: doGet, include: include, handle_: handle_, getInitialData: getInitialData, getHome: getHome, getSettings_: getSettings_, getSetting_: getSetting_, getSettingNumber_: getSettingNumber_, setSetting_: setSetting_, resetExecutionCache_: resetExecutionCache_, alert_: alert_, pad2_: pad2_, isDate_: isDate_, formatDate_: formatDate_, formatDateTime_: formatDateTime_, formatYmd_: formatYmd_, parseDate_: parseDate_, toDate_: toDate_, normalizeTime_: normalizeTime_, combineDateTime_: combineDateTime_, round2_: round2_, toHundredths_: toHundredths_, toBool_: toBool_, sha256Hex_: sha256Hex_, uuid_: uuid_, columnLetter_: columnLetter_, getSpreadsheet_: getSpreadsheet_, getSheet_: getSheet_, withLock_: withLock_, headerInfo_: headerInfo_, columnType_: columnType_, fromCell_: fromCell_, toCell_: toCell_, readAll_: readAll_, findRowIndex_: findRowIndex_, objectToRow_: objectToRow_, rowFormats_: rowFormats_, appendRows_: appendRows_, appendRow_: appendRow_, updateRow_: updateRow_, replaceAllRows_: replaceAllRows_, setRecordSetterUnderline_: setRecordSetterUnderline_, bySortOrder_: bySortOrder_, getPatterns_: getPatterns_, getOperators_: getOperators_, getProducts_: getProducts_, findPattern_: findPattern_, findOperator_: findOperator_, findOperatorByShortName_: findOperatorByShortName_, findProduct_: findProduct_, operatorsById_: operatorsById_, adminPassword_: adminPassword_, verifyOperator_: verifyOperator_, verifyAdmin_: verifyAdmin_, roleOf_: roleOf_, requireAdmin_: requireAdmin_, adminTokenInfo_: adminTokenInfo_, authenticateAdmin: authenticateAdmin, checkAdmin: checkAdmin, logoutAdmin: logoutAdmin, pickRecordInput_: pickRecordInput_, validateRecord_: validateRecord_, formatRecordId_: formatRecordId_, nextSeqFromIds_: nextSeqFromIds_, nextRecordId_: nextRecordId_, calcMasterDiff_: calcMasterDiff_, createRecord: createRecord, findRecordForWrite_: findRecordForWrite_, checkVersion_: checkVersion_, denyEdit_: denyEdit_, updateRecord: updateRecord, deleteRecord: deleteRecord, restoreRecord: restoreRecord, publicSettings_: publicSettings_, changedAtMs_: changedAtMs_, sortRecords_: sortRecords_, activeRecordsSorted_: activeRecordsSorted_, operatorName_: operatorName_, toClientRecord_: toClientRecord_, historyPageSize_: historyPageSize_, listRecords: listRecords, recordPermissions_: recordPermissions_, getRecord: getRecord, writeLog_: writeLog_, readLogs_: readLogs_, listOperationLogs: listOperationLogs, csvToObjects_: csvToObjects_, readMigrationFiles_: readMigrationFiles_, isTwoDecimals_: isTwoDecimals_, buildMigration_: buildMigration_, migrationCheck_: migrationCheck_, formatMigrationCheck_: formatMigrationCheck_, importMigration_: importMigration_, menuImportMigration: menuImportMigration, backupNow_: backupNow_, runMonthlyBackup: runMonthlyBackup, menuBackupNow: menuBackupNow, menuSetupBackupTrigger: menuSetupBackupTrigger, onOpen: onOpen, menuSetup: menuSetup, setupRecordsSheetView_: setupRecordsSheetView_, ensureSettings_: ensureSettings_, ensureInitialProducts_: ensureInitialProducts_, assertEq_: assertEq_, assertTrue_: assertTrue_, assertThrows_: assertThrows_, testList_: testList_, runAllTests: runAllTests, menuRunAllTests: menuRunAllTests, skip_: skip_, hasFakes_: hasFakes_, sheetCounts_: sheetCounts_, test_DL01_: test_DL01_, test_DL02_: test_DL02_, test_DL03_: test_DL03_, test_DL04_: test_DL04_, test_DL05_: test_DL05_, test_DL06_: test_DL06_, test_DL07_: test_DL07_, test_DL08_: test_DL08_, test_DL09_: test_DL09_, test_LK02_: test_LK02_, test_AU07_: test_AU07_, migrationFixture_: migrationFixture_, test_MG07_: test_MG07_, test_MG08_: test_MG08_, test_MG09_: test_MG09_, test_MG10_: test_MG10_, test_MG11_: test_MG11_, testCtx_: testCtx_, addTestRecord_: addTestRecord_, removeTestRecords_: removeTestRecords_, test_QY01_: test_QY01_, test_QY02_: test_QY02_, test_QY03_: test_QY03_, test_QY04_: test_QY04_, validPayload_: validPayload_, removeRecordsByIds_: removeRecordsByIds_, expectValidation_: expectValidation_, test_IN01_: test_IN01_, test_IN03_: test_IN03_, test_IN04_: test_IN04_, test_IN05_: test_IN05_, test_IN06_: test_IN06_, test_IN07_: test_IN07_, test_IN08_: test_IN08_, test_IN10_: test_IN10_, test_IN12_: test_IN12_, adminCtxForTest_: adminCtxForTest_, dropTestToken_: dropTestToken_, expectedRows_: expectedRows_, ids_: ids_, test_LS01_: test_LS01_, test_LS02_: test_LS02_, test_LS09_: test_LS09_, test_LS03_: test_LS03_, test_LS04_: test_LS04_, test_LS05_: test_LS05_, test_LS06_: test_LS06_, test_LS07_: test_LS07_, test_LS08_: test_LS08_, withTestPassword_: withTestPassword_, lastLog_: lastLog_, test_AU01_: test_AU01_, test_AU02_: test_AU02_, test_AU03_: test_AU03_, test_AU04_: test_AU04_, test_AU05_: test_AU05_, test_AU06_: test_AU06_, withTestRecord_: withTestRecord_, recordById_: recordById_, test_ED01_: test_ED01_, test_ED02_: test_ED02_, test_ED03_: test_ED03_, test_ED04_: test_ED04_, test_ED05_: test_ED05_, test_ED06_: test_ED06_, test_ED07_: test_ED07_, test_ED08_: test_ED08_, test_ED09_: test_ED09_, test_ED10_: test_ED10_, test_LK01_: test_LK01_, test_LG01_: test_LG01_, withBackupFolder_: withBackupFolder_, filesIn_: filesIn_, test_BK01_: test_BK01_, test_BK02_: test_BK02_, test_BK03_: test_BK03_, test_ST01_: test_ST01_, test_ST02_: test_ST02_, test_ST03_: test_ST03_, test_OP01_: test_OP01_, test_OP02_: test_OP02_, test_OP03_: test_OP03_, seedDevData: seedDevData, menuSeedDevData: menuSeedDevData, setAdminPasswordForPreview_: setAdminPasswordForPreview_ } };
 })();
 </script>
 <script>
@@ -3837,11 +3952,11 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
 
   // seedDevData がまだ無いとき（フェーズ0）の、バナー用の仮の操作者
   var FALLBACK_OPERATORS = [
-    { operatorId: 'U01', shortName: 'A', fullName: '架空 一郎' },
-    { operatorId: 'U02', shortName: 'B', fullName: '架空 二郎' },
-    { operatorId: 'U03', shortName: 'C', fullName: '架空 三郎' },
-    { operatorId: 'U04', shortName: 'D', fullName: '架空 四郎' },
-    { operatorId: 'U05', shortName: 'E', fullName: '架空 五郎' }
+    { operatorId: 'U01', shortName: 'A', fullName: '架空 一郎', isUnderline: false },
+    { operatorId: 'U02', shortName: 'B', fullName: '架空 二郎', isUnderline: true },
+    { operatorId: 'U03', shortName: 'C', fullName: '架空 三郎', isUnderline: false },
+    { operatorId: 'U04', shortName: 'D', fullName: '架空 四郎', isUnderline: false },
+    { operatorId: 'U05', shortName: 'E', fullName: '架空 五郎', isUnderline: false }
   ];
 
   function call(name) {
@@ -3958,7 +4073,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
     if (sel) {
       var cur = getOperatorId();
       sel.innerHTML = ops.map(function (o) {
-        var label = o.operatorId + ' ' + o.shortName + (o.fullName ? '（' + o.fullName + '）' : '');
+        var label = o.operatorId + ' ' + o.shortName + (o.isUnderline ? ' (下線)' : '') + (o.fullName ? '（' + o.fullName + '）' : '');
         return '<option value="' + o.operatorId + '"' + (o.operatorId === cur ? ' selected' : '') + '>' + label + '</option>';
       }).join('');
     }
@@ -4060,14 +4175,36 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
   function diffBadge(r) { return r && r.masterDiff ? '<span class="badge badge-diff">' + icon('warn', 'icon-sm') + '基準と違う</span>' : ''; }
   function findPattern(no) { return state.patterns.filter(function (p) { return p.pattern === Number(no); })[0] || null; }
   function findOperator(id) { return state.operators.filter(function (o) { return o.operatorId === id; })[0] || null; }
-  /** 入力者の表示「記入称(氏名)」。氏名が空なら記入称だけ */
+  /** 入力者の表示「記入称(氏名)」。氏名が空なら記入称だけ（ダイアログのタイトルや属性用） */
   function operatorLabel(o) { return o ? o.shortName + (o.fullName ? '(' + o.fullName + ')' : '') : ''; }
+  /** 入力者の表示 HTML。記入称に下線があれば .is-underline を付与（フェーズ10） */
+  function operatorHtml(o) {
+    if (!o) return '';
+    var shortHtml = '<span class="' + (o.isUnderline ? 'is-underline' : '') + '">' + esc(o.shortName) + '</span>';
+    return o.fullName ? shortHtml + '(' + esc(o.fullName) + ')' : shortHtml;
+  }
+  /** 入力者の選択肢用テキスト（<select> の <option> 用）。下線があれば「y (下線)(氏名)」のように表記（フェーズ10） */
+  function operatorOptionText(o) {
+    if (!o) return '';
+    var label = o.shortName + (o.isUnderline ? ' (下線)' : '');
+    return o.fullName ? label + '(' + o.fullName + ')' : label;
+  }
   /** 記録の設定者の表示。記録に残した記入称に、入力者マスタの氏名を添える（マスタに無ければ記入称だけ） */
   function setterLabel(r) {
     var op = r && r.setterId ? findOperator(r.setterId) : null;
     var short = (r && r.setterName) || (op ? op.shortName : '');
     if (!short) return '';
     return op && op.fullName ? short + '(' + op.fullName + ')' : short;
+  }
+  /** 記録の設定者の表示 HTML。記録に残した記入称に、入力者マスタの氏名を添え、マスタが下線持ちなら下線を引く（フェーズ10） */
+  function setterHtml(r) {
+    if (!r) return '';
+    var op = r.setterId ? findOperator(r.setterId) : null;
+    var short = r.setterName || (op ? op.shortName : '');
+    if (!short) return '';
+    var isUnderline = !!(op && op.isUnderline);
+    var shortHtml = '<span class="' + (isUnderline ? 'is-underline' : '') + '">' + esc(short) + '</span>';
+    return (op && op.fullName) ? shortHtml + '(' + esc(op.fullName) + ')' : shortHtml;
   }
   function patternLabel(no) { return 'パターン' + no; }
   /** 'yyyy/MM/dd HH:mm' → 今年なら 'MM/dd HH:mm' */
@@ -4200,7 +4337,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
     $('env-badge').hidden = state.settings.ENV !== '開発';
     var op = findOperator(state.operatorId);
     var chip = $('operator-chip');
-    chip.innerHTML = icon('person', 'icon-sm') + '<span>' + esc(op && op.active ? operatorLabel(op) : '名前を選ぶ') + '</span>';
+    chip.innerHTML = icon('person', 'icon-sm') + '<span>' + (op && op.active ? operatorHtml(op) : '名前を選ぶ') + '</span>';
     chip.title = op && op.active ? operatorLabel(op) : '';
     chip.classList.toggle('is-empty', !(op && op.active));
     renderAdminChip();
@@ -4245,7 +4382,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
     var html = '<p class="muted" style="margin:0 0 12px">' + esc(MESSAGES.M11) + '</p><div class="operator-list">' +
       ops.map(function (o) {
         return '<button type="button" class="operator-btn' + (o.operatorId === state.operatorId ? ' is-selected' : '') + '" data-op="' + esc(o.operatorId) + '">' +
-          '<span class="short">' + esc(o.shortName) + '</span><span class="full">' + esc(o.fullName || '') + '</span></button>';
+          '<span class="short' + (o.isUnderline ? ' is-underline' : '') + '">' + esc(o.shortName) + '</span><span class="full">' + esc(o.fullName || '') + '</span></button>';
       }).join('') + '</div>';
     var close = openModal({ title: 'あなたの名前', html: html, closable: !force });
     var modal = $('modal-root').lastChild;
@@ -4283,7 +4420,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
         '<div class="current-row"><span class="current-pattern">パターン ' + esc(c.pattern) + '</span>' + fuelBadge(c.fuel) + '</div>' +
         '<div class="current-pressure num">' + esc(fmt2(c.pressure)) + '<span class="unit">MPa</span></div>' +
         (c.masterDiff ? '<div style="margin-bottom:8px">' + diffBadge(c) + '</div>' : '') +
-        '<div class="meta"><span class="num">' + esc(c.changedAt) + '</span><span>設定者 <b>' + esc(setterLabel(c) || '—') + '</b></span>' +
+        '<div class="meta"><span class="num">' + esc(c.changedAt) + '</span><span>設定者 <b>' + (setterHtml(c) || '—') + '</b></span>' +
         (c.product ? '<span>品種 <b>' + esc(c.product) + '</b></span>' : '') + '</div>' +
       '</div>';
     }
@@ -4308,7 +4445,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
         '<span class="badge badge-pattern">' + esc(patternLabel(r.pattern)) + '</span>' + fuelBadge(r.fuel) + '</span>' +
         '<span class="record-pressure num">' + esc(fmt2(r.pressure)) + (r.masterDiff ? icon('warn', 'icon-sm') : '') + '</span>' +
       '</div>' +
-      '<div class="record-line2"><span class="record-setter">' + esc(setterLabel(r) || '設定者なし') + '</span>' +
+      '<div class="record-line2"><span class="record-setter">' + (setterHtml(r) || '設定者なし') + '</span>' +
         '<span class="record-product">' + esc(r.product || '') + '</span><span class="record-note">' + esc(r.note || '') + '</span></div>' +
     '</div>';
   }
@@ -4395,7 +4532,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
         '<button type="button" class="btn btn-secondary btn-now" id="btn-now">今の時刻にする</button></div>',
         '<div class="field-error" data-error="time"></div>') +
       fieldHtml('setterId', '設定者', true,
-        '<div class="setter-box">' + icon('person', 'icon-sm') + esc(op ? operatorLabel(op) : '（未選択）') + '</div>',
+        '<div class="setter-box">' + icon('person', 'icon-sm') + (op ? operatorHtml(op) : '（未選択）') + '</div>',
         '<div class="field-hint">変えるときは、右上の名前のボタンから選び直してください</div>') +
       fieldHtml('product', '生産品種', false,
         '<select class="select" id="in-product"><option value="">（選ばない）</option>' + products.map(function (p) {
@@ -4536,7 +4673,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
       '<dt>パターン</dt><dd>' + esc(f.pattern) + '</dd>' +
       '<dt>メインボイラ</dt><dd>' + esc(f.fuel) + '</dd>' +
       '<dt>設定圧力</dt><dd class="num">' + esc(pressure) + ' MPa</dd>' +
-      '<dt>設定者</dt><dd>' + esc(operatorLabel(op)) + '</dd>' +
+      '<dt>設定者</dt><dd>' + (op ? operatorHtml(op) : '—') + '</dd>' +
       '<dt>生産品種</dt><dd>' + esc(f.product || '—') + '</dd>' +
       '<dt>備考</dt><dd>' + esc(String(f.note || '').trim() || '—') + '</dd></dl>' +
       notices.map(function (n) { return '<div class="notice-warn">' + icon('warn', 'icon-sm') + ' ' + esc(n) + '</div>'; }).join('');
@@ -4603,7 +4740,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
           '<div class="field"><div class="field-label">メインボイラ</div><select class="select" id="f-fuel">' + optionHtml('', 'すべて', f.fuel) +
             state.fuels.map(function (x) { return optionHtml(x, x, f.fuel); }).join('') + '</select></div>' +
           '<div class="field"><div class="field-label">設定者</div><select class="select" id="f-setter">' + optionHtml('', 'すべて', f.setterId) +
-            state.operators.map(function (o) { return optionHtml(o.operatorId, operatorLabel(o) + (o.active ? '' : '（無効）'), f.setterId); }).join('') + '</select></div>' +
+            state.operators.map(function (o) { return optionHtml(o.operatorId, operatorOptionText(o) + (o.active ? '' : '（無効）'), f.setterId); }).join('') + '</select></div>' +
           '<div class="field"><div class="field-label">生産品種</div><select class="select" id="f-product">' + optionHtml('', 'すべて', f.product) +
             state.products.map(function (p) { return optionHtml(p.name, p.name + (p.active ? '' : '（無効）'), f.product); }).join('') + optionHtml(PRODUCT_UNSET, PRODUCT_UNSET, f.product) + '</select></div>' +
         '</div>' +
@@ -4719,7 +4856,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
           '<dt>パターン</dt><dd>' + esc(r.pattern) + (p ? '<span class="sub">基準（メイン）' + esc(fmt2(p.mainPressure)) + ' MPa</span>' : '') + '</dd>' +
           '<dt>メインボイラ</dt><dd>' + esc(r.fuel) + '</dd>' +
           '<dt>設定圧力</dt><dd><span class="detail-pressure num">' + esc(fmt2(r.pressure)) + '</span> MPa</dd>' +
-          '<dt>設定者</dt><dd>' + esc(setterLabel(r) || '—') + (op && !op.active ? '<span class="sub">（無効）</span>' : '') + '</dd>' +
+          '<dt>設定者</dt><dd>' + (setterHtml(r) || '—') + (op && !op.active ? '<span class="sub">（無効）</span>' : '') + '</dd>' +
           '<dt>生産品種</dt><dd>' + esc(r.product || '—') + '</dd>' +
           '<dt>備考</dt><dd>' + esc(r.note || '—') + '</dd>' +
           '<dt>データ区分</dt><dd>' + esc(r.source) + (r.source === '移行' && r.sourceRow ? '<span class="sub">Excel の ' + esc(r.sourceRow) + ' 行目</span>' : '') + '</dd>' +
@@ -4896,9 +5033,9 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
         '<div class="field-error" data-error="time"></div>') +
       fieldHtml('setterId', '設定者', true, d.canChangeSetter ?
         '<select class="select" data-ed="setter">' + (r.setterId ? '' : '<option value="">（空）</option>') + setters.map(function (o) {
-          return '<option value="' + esc(o.operatorId) + '"' + (o.operatorId === r.setterId ? ' selected' : '') + '>' + esc(operatorLabel(o) + (o.active ? '' : '（無効）')) + '</option>';
+          return '<option value="' + esc(o.operatorId) + '"' + (o.operatorId === r.setterId ? ' selected' : '') + '>' + esc(operatorOptionText(o) + (o.active ? '' : '（無効）')) + '</option>';
         }).join('') + '</select>' :
-        '<div class="setter-box">' + icon('person', 'icon-sm') + esc(setterLabel(r) || '—') + '</div>') +
+        '<div class="setter-box">' + icon('person', 'icon-sm') + (setterHtml(r) || '—') + '</div>') +
       fieldHtml('product', '生産品種', false, '<select class="select" data-ed="product"><option value="">（選ばない）</option>' + products.map(function (p) {
         return '<option value="' + esc(p.name) + '"' + (p.name === e.product ? ' selected' : '') + '>' + esc(p.name + (p.active ? '' : '（無効）')) + '</option>';
       }).join('') + '</select>') +

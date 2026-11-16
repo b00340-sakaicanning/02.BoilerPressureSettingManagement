@@ -187,6 +187,13 @@
     };
     Range.prototype.setNumberFormats = function (f) { const self = this; this._each(function (ri, ci, i, j) { self.s._setFmt(ri, ci, f[i][j]); }); return this; };
     Range.prototype.setNumberFormat = function (f) { const self = this; this._each(function (ri, ci) { self.s._setFmt(ri, ci, f); }); return this; };
+    Range.prototype.getFontLines = function () {
+      const out = [];
+      for (let i = 0; i < this.nr; i++) { const row = []; for (let j = 0; j < this.nc; j++) row.push(this.s._fontLine(this.r - 1 + i, this.c - 1 + j)); out.push(row); }
+      return out;
+    };
+    Range.prototype.setFontLine = function (line) { const self = this; this._each(function (ri, ci) { self.s._setFontLine(ri, ci, line); }); return this; };
+    Range.prototype.setFontLines = function (lines) { const self = this; this._each(function (ri, ci, i, j) { self.s._setFontLine(ri, ci, lines[i][j]); }); return this; };
     Range.prototype.setFontWeight = function () { return this; };
     Range.prototype.insertCheckboxes = function () { return this; }; // 見た目だけの機能なので、フェイクでは何もしない
     Range.prototype.setBackground = function () { return this; };
@@ -205,13 +212,15 @@
     };
 
     function Sheet(name, state) {
-      this.st = state || { name: name, data: [], fmts: [], maxRows: 1000, maxCols: 26, hidden: false, protections: 0 };
+      this.st = state || { name: name, data: [], fmts: [], fontLines: [], maxRows: 1000, maxCols: 26, hidden: false, protections: 0 };
     }
     Sheet.prototype.getName = function () { return this.st.name; };
     Sheet.prototype._get = function (r, c) { const row = this.st.data[r]; const v = row ? row[c] : undefined; return v === undefined || v === null ? '' : v; };
     Sheet.prototype._raw = function (r, c, v) { while (this.st.data.length <= r) this.st.data.push([]); this.st.data[r][c] = v; };
     Sheet.prototype._fmt = function (r, c) { const row = this.st.fmts[r]; return (row && row[c]) || 'General'; };
     Sheet.prototype._setFmt = function (r, c, f) { while (this.st.fmts.length <= r) this.st.fmts.push([]); this.st.fmts[r][c] = f; };
+    Sheet.prototype._fontLine = function (r, c) { const row = this.st.fontLines ? this.st.fontLines[r] : null; return (row && row[c]) || 'none'; };
+    Sheet.prototype._setFontLine = function (r, c, fl) { this.st.fontLines = this.st.fontLines || []; while (this.st.fontLines.length <= r) this.st.fontLines.push([]); this.st.fontLines[r][c] = fl; };
     Sheet.prototype._set = function (r, c, v) {
       if (typeof v === 'string') {
         if (v.charAt(0) === "'") v = v.substr(1);

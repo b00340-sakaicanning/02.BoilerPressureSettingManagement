@@ -86,7 +86,7 @@ function getInitialData(ctx) {
         return { pattern: p.pattern, mainPressure: p.mainPressure, subPressure: p.subPressure, products: p.products, note: p.note,
           revisedAt: formatDate_(p.revisedAt), sortOrder: p.sortOrder, active: p.active };
       }),
-      operators: getOperators_().map(function (o) { return { operatorId: o.operatorId, shortName: o.shortName, fullName: o.fullName, sortOrder: o.sortOrder, active: o.active }; }),
+      operators: getOperators_().map(function (o) { return { operatorId: o.operatorId, shortName: o.shortName, fullName: o.fullName, sortOrder: o.sortOrder, active: o.active, isUnderline: !!o.isUnderline }; }),
       products: getProducts_().map(function (p) { return { name: p.name, sortOrder: p.sortOrder, active: p.active }; }),
       operatorValid: operatorValid,
       isAdmin: operatorValid ? verifyAdmin_(ctx) : false,
@@ -448,10 +448,15 @@ function readAll_(key) {
   const out = [];
   if (last >= 2) {
     const values = sh.getRange(2, 1, last - 1, info.width).getValues();
+    let opFontLines = null;
+    if (key === 'OPERATORS' && info.cols.shortName) {
+      try { opFontLines = sh.getRange(2, info.cols.shortName, last - 1, 1).getFontLines(); } catch (e) { opFontLines = null; }
+    }
     values.forEach(function (row, i) {
       if (row.every(function (v) { return v === '' || v === null; })) return;
       const obj = { _row: i + 2 };
       COLUMNS[key].forEach(function (c) { obj[c[1]] = fromCell_(c[2], row[info.cols[c[1]] - 1]); });
+      if (opFontLines) obj.isUnderline = !!(opFontLines[i] && opFontLines[i][0] === 'underline');
       out.push(obj);
     });
   }
@@ -483,10 +488,10 @@ function rowFormats_(key) {
   return f;
 }
 
-/** 複数行を末尾に足す。書式を先に設定してから値を書く（"08:05" が時刻に変わらないようにする） */
+/** 複数行を末尾に足す。書式を先に設定してから値を書く（"08:05" が時刻に変わらないようにする）。追加した先頭行番号を返す */
 function appendRows_(key, objs) {
-  if (!objs.length) return;
-  withLock_(function () {
+  if (!objs.length) return -1;
+  return withLock_(function () {
     const sh = getSheet_(key);
     const info = headerInfo_(key);
     const start = sh.getLastRow() + 1;
@@ -497,10 +502,11 @@ function appendRows_(key, objs) {
     range.setNumberFormats(objs.map(function () { return fmt; }));
     range.setValues(objs.map(function (o) { return objectToRow_(key, o, null); }));
     if (EXEC_.rows) delete EXEC_.rows[key];
+    return start;
   });
 }
 
-function appendRow_(key, obj) { appendRows_(key, [obj]); }
+function appendRow_(key, obj) { return appendRows_(key, [obj]); }
 
 /** 指定した行の、obj に含まれるキーの列だけを書き換える */
 function updateRow_(key, row, obj) {
@@ -525,6 +531,21 @@ function replaceAllRows_(key, objs) {
     if (EXEC_.rows) delete EXEC_.rows[key];
     appendRows_(key, objs);
   });
+}
+
+/** 履歴シートの指定行の設定者セルに、該当入力者が下線持ちなら下線（underline / none）を設定する（docs/03 §2.1、フェーズ10） */
+function setRecordSetterUnderline_(row, setterId) {
+  try {
+    const sh = getSheet_('RECORDS');
+    const info = headerInfo_('RECORDS');
+    const col = info.cols.setterName;
+    if (!col || !row || row < 2) return;
+    const op = setterId ? findOperator_(setterId) : null;
+    const isUnderline = !!(op && op.isUnderline);
+    sh.getRange(row, col, 1, 1).setFontLine(isUnderline ? 'underline' : 'none');
+  } catch (e) {
+    // 書式設定のエラーで本体処理を止めない
+  }
 }
 
 // =====================================================
@@ -816,7 +837,8 @@ function createRecord(ctx, payload) {
         createdAt: now, createdBy: String(ctx.operatorId), updatedAt: now, updatedBy: String(ctx.operatorId),
         version: 1, deleted: false, deletedAt: null, deletedBy: ''
       };
-      appendRow_('RECORDS', rec);
+      const addedRow = appendRow_('RECORDS', rec);
+      setRecordSetterUnderline_(addedRow, rec.setterId);
       writeLog_(ctx, role, 'CREATE', rec.recordId, { pattern: rec.pattern, fuel: rec.fuel, pressure: rec.pressure, masterDiff: rec.masterDiff });
       return { recordId: rec.recordId, version: rec.version, masterDiff: rec.masterDiff };
     });
@@ -876,6 +898,7 @@ function updateRecord(ctx, recordId, payload, version) {
         updatedAt: now, updatedBy: String(ctx.operatorId), version: Number(r.version) + 1
       };
       updateRow_('RECORDS', r._row, upd);
+      if (changes.setterId) setRecordSetterUnderline_(r._row, upd.setterId);
       writeLog_(ctx, role, 'UPDATE', r.recordId, { changes: changes });
       return { recordId: r.recordId, version: upd.version, masterDiff: upd.masterDiff, unchanged: false };
     });

@@ -25,11 +25,11 @@
 
   // seedDevData がまだ無いとき（フェーズ0）の、バナー用の仮の操作者
   var FALLBACK_OPERATORS = [
-    { operatorId: 'U01', shortName: 'A', fullName: '架空 一郎' },
-    { operatorId: 'U02', shortName: 'B', fullName: '架空 二郎' },
-    { operatorId: 'U03', shortName: 'C', fullName: '架空 三郎' },
-    { operatorId: 'U04', shortName: 'D', fullName: '架空 四郎' },
-    { operatorId: 'U05', shortName: 'E', fullName: '架空 五郎' }
+    { operatorId: 'U01', shortName: 'A', fullName: '架空 一郎', isUnderline: false },
+    { operatorId: 'U02', shortName: 'B', fullName: '架空 二郎', isUnderline: true },
+    { operatorId: 'U03', shortName: 'C', fullName: '架空 三郎', isUnderline: false },
+    { operatorId: 'U04', shortName: 'D', fullName: '架空 四郎', isUnderline: false },
+    { operatorId: 'U05', shortName: 'E', fullName: '架空 五郎', isUnderline: false }
   ];
 
   function call(name) {
@@ -146,7 +146,7 @@
     if (sel) {
       var cur = getOperatorId();
       sel.innerHTML = ops.map(function (o) {
-        var label = o.operatorId + ' ' + o.shortName + (o.fullName ? '（' + o.fullName + '）' : '');
+        var label = o.operatorId + ' ' + o.shortName + (o.isUnderline ? ' (下線)' : '') + (o.fullName ? '（' + o.fullName + '）' : '');
         return '<option value="' + o.operatorId + '"' + (o.operatorId === cur ? ' selected' : '') + '>' + label + '</option>';
       }).join('');
     }
