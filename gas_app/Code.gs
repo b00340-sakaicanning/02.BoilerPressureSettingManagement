@@ -1,6 +1,6 @@
 /**
  * ボイラ圧力設定管理 — サーバー側（Code.gs）
- * 版: v1.3（2026/11/15。フェーズ9: 管理者パスワードをスクリプトプロパティで管理）
+ * 版: v1.4（2026/11/17。フェーズ11: 設定者を選ぶ画面の文言にそろえた。plan/13）
  *
  * 仕様の正: docs/03_データ設計.md、docs/04_実装仕様.md（計画: plan/02 §2.1）
  * 反映: このファイルの中身を、GAS エディタの Code.gs に丸ごと貼り替える（clasp は使わない）
@@ -606,7 +606,7 @@ function adminPassword_() {
  */
 function verifyOperator_(ctx) {
   const op = ctx && ctx.operatorId ? findOperator_(ctx.operatorId) : null;
-  if (!op || !op.active) throw AppError('AUTH_REQUIRED', 'はじめに、あなたの名前を選んでください', null, { need: 'operator' });
+  if (!op || !op.active) throw AppError('AUTH_REQUIRED', '設定者を選択してください', null, { need: 'operator' });
   return op;
 }
 

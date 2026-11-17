@@ -92,7 +92,7 @@ const CHECKS = [
     }
   },
   {
-    id: 'TC-UI-04', name: 'ENV=開発 のときヘッダに「開発」バッジが出て、ENV=本番 のときは出ない。名前を選ぶ前は鍵のボタンが出ない',
+    id: 'TC-UI-04', name: 'ENV=開発 のときヘッダに「開発」バッジが出て、ENV=本番 のときは出ない。設定者を選ぶ前は鍵のボタンが出ない',
     run: async (b, t) => {
       const SHOWN = `(function(){ var e = document.getElementById('env-badge'); return !!e && e.offsetWidth > 0; })()`;
       const SET_ENV = (v) => `(function(){ var g = window.__GAS__; g.fns.resetExecutionCache_(); g.fns.setSetting_('ENV', '${v}'); localStorage.setItem('boilerMock_v1', g.fakes.helpers.exportState()); return true; })()`;
@@ -107,7 +107,7 @@ const CHECKS = [
         await b.evalJs(SET_ENV('開発'));
       }
       await open(b, 'tab=home&op=none');
-      t.ok(await b.evalJs(`document.getElementById('admin-chip').offsetWidth === 0`), '名前を選ぶ前に鍵のボタンが見える');
+      t.ok(await b.evalJs(`document.getElementById('admin-chip').offsetWidth === 0`), '設定者を選ぶ前に鍵のボタンが見える');
     }
   },
   {
@@ -531,7 +531,7 @@ const CHECKS = [
         opts: Array.prototype.map.call(document.querySelectorAll('#f-setter option'), function(o){ return o.text; }).slice(1) })`);
       t.ok(hist.badges.every((x) => /^パターン\d$/.test(x)), '履歴のパターン: ' + hist.badges.slice(0, 3).join(','));
       t.ok(hist.setters.every((x) => /^[A-Z]\(架空 .+?\)$/.test(x)), '履歴の設定者: ' + hist.setters.slice(0, 3).join(','));
-      t.ok(hist.opts.every((x) => /^[A-Z]\(架空 .+?\)(（無効）)?$/.test(x)), '絞り込みの設定者: ' + hist.opts.join(','));
+      t.ok(hist.opts.every((x) => /^[A-Z]( \(下線\))?\(架空 .+?\)(（無効）)?$/.test(x)), '絞り込みの設定者（下線のある人は「B (下線)(氏名)」。plan/12 C-3）: ' + hist.opts.join(','));
       await b.click('#history-list .record-card');
       await b.settle();
       const det = await b.evalJs(`document.querySelector('.modal[data-kind="record"]').innerText`);

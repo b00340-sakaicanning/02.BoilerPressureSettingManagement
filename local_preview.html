@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
   <style>
   /* ボイラ圧力設定管理 — スタイル（css.html）
-     版: v0.9（2026/11/15。フェーズ9: ロッカーキー貸出管理・エネルギー使用量集計とデザインをそろえた。plan/11）
+     版: v0.10（2026/11/17。フェーズ11: コメントの文言だけ。フェーズ9 でロッカーキー貸出管理・エネルギー使用量集計とデザインをそろえた。plan/11・plan/13）
      デザイン方針: plan/05 §0（参考: 02.ロッカーキー貸出管理(Gemini)/gas_app/css.html） */
   :root {
     /* メイン（Sky） */
@@ -328,7 +328,7 @@
   .admin-chip.is-admin { border-color: var(--warning); background: var(--warning); color: #fff; }
   .admin-chip { flex-shrink: 0; }
   .admin-word { display: none; } /* スマホは「30分」だけ。タブレット・PC は「管理者 30分」 */
-  /* hidden を付けたら隠す（.badge・.admin-chip の display の指定が hidden より強いため。ENV=本番 の「開発」バッジ、名前を選ぶ前の鍵のボタン） */
+  /* hidden を付けたら隠す（.badge・.admin-chip の display の指定が hidden より強いため。ENV=本番 の「開発」バッジ、設定者を選ぶ前の鍵のボタン） */
   .badge-env[hidden], .admin-chip[hidden] { display: none; }
   .app-header .operator-chip { flex-shrink: 0; max-width: 48vw; padding: 0 12px; font-size: 0.88rem; } /* 名前を優先して見せ、タイトルの方を縮める */
   .operator-chip > span { overflow: hidden; text-overflow: ellipsis; }
@@ -520,7 +520,7 @@
         <button type="button" class="tab-btn" data-tab="history"></button>
         <button type="button" class="tab-btn" data-tab="patterns"></button>
       </nav>
-      <button type="button" class="operator-chip" id="operator-chip" aria-label="操作者を選ぶ"></button>
+      <button type="button" class="operator-chip" id="operator-chip" aria-label="設定者を選ぶ"></button>
       <button type="button" class="admin-chip" id="admin-chip" aria-label="管理者モード"></button>
     </div>
   </header>
@@ -1004,7 +1004,7 @@ window.__GAS__ = (function () {
   // ===== gas_app/Code.gs =====
 /**
  * ボイラ圧力設定管理 — サーバー側（Code.gs）
- * 版: v1.3（2026/11/15。フェーズ9: 管理者パスワードをスクリプトプロパティで管理）
+ * 版: v1.4（2026/11/17。フェーズ11: 設定者を選ぶ画面の文言にそろえた。plan/13）
  *
  * 仕様の正: docs/03_データ設計.md、docs/04_実装仕様.md（計画: plan/02 §2.1）
  * 反映: このファイルの中身を、GAS エディタの Code.gs に丸ごと貼り替える（clasp は使わない）
@@ -1610,7 +1610,7 @@ function adminPassword_() {
  */
 function verifyOperator_(ctx) {
   const op = ctx && ctx.operatorId ? findOperator_(ctx.operatorId) : null;
-  if (!op || !op.active) throw AppError('AUTH_REQUIRED', 'はじめに、あなたの名前を選んでください', null, { need: 'operator' });
+  if (!op || !op.active) throw AppError('AUTH_REQUIRED', '設定者を選択してください', null, { need: 'operator' });
   return op;
 }
 
@@ -4092,7 +4092,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
 </script>
 <script>
   /* ボイラ圧力設定管理 — 画面の処理（js.html）
-     版: v0.8（2026/11/15。フェーズ9: デザインをそろえた、管理者パスワード・「認証する」ボタン。plan/11）
+     版: v0.9（2026/11/17。フェーズ11: 設定者を選ぶ画面の文言。設定者の欄で記入称と氏名の間が空く不具合（フェーズ10）を直した。plan/13）
      仕様: docs/02 §3・§5、docs/04 第2部 §9、plan/05
      ブラウザに保存するキー: localStorage 'boilerPressure.operatorId'、sessionStorage 'boilerPressure.adminToken'・'boilerPressure.historyFilter'・'boilerPressure.historyPage'
      ブラウザ標準の alert / confirm / prompt は使わない */
@@ -4102,7 +4102,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
   /** 画面の文言（plan/05 §8） */
   var MESSAGES = {
     M01: '記録しました', M02: '修正しました', M03: '削除しました', M04: '元に戻しました',
-    M11: 'はじめに、あなたの名前を選んでください',
+    M11: '設定者を選択してください',
     M12: '管理者モードにしました（{n}分）', M13: '管理者モードを終了しますか？', M14: '管理者モードの時間が切れました',
     M15: 'パスワードが違います', M16: '続けて間違えたため、{n}分間は入れません',
     M21: 'パターン{p}の基準は {m} MPa です。入力した値は基準と違います', M22: '未来の日時になっています。このまま登録しますか？',
@@ -4337,7 +4337,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
     $('env-badge').hidden = state.settings.ENV !== '開発';
     var op = findOperator(state.operatorId);
     var chip = $('operator-chip');
-    chip.innerHTML = icon('person', 'icon-sm') + '<span>' + (op && op.active ? operatorHtml(op) : '名前を選ぶ') + '</span>';
+    chip.innerHTML = icon('person', 'icon-sm') + '<span>' + (op && op.active ? operatorHtml(op) : '設定者を選ぶ') + '</span>';
     chip.title = op && op.active ? operatorLabel(op) : '';
     chip.classList.toggle('is-empty', !(op && op.active));
     renderAdminChip();
@@ -4384,7 +4384,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
         return '<button type="button" class="operator-btn' + (o.operatorId === state.operatorId ? ' is-selected' : '') + '" data-op="' + esc(o.operatorId) + '">' +
           '<span class="short' + (o.isUnderline ? ' is-underline' : '') + '">' + esc(o.shortName) + '</span><span class="full">' + esc(o.fullName || '') + '</span></button>';
       }).join('') + '</div>';
-    var close = openModal({ title: 'あなたの名前', html: html, closable: !force });
+    var close = openModal({ title: '設定者', html: html, closable: !force });
     var modal = $('modal-root').lastChild;
     modal.setAttribute('data-kind', 'operator');
     modal.querySelectorAll('.operator-btn').forEach(function (b) {
@@ -4532,7 +4532,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
         '<button type="button" class="btn btn-secondary btn-now" id="btn-now">今の時刻にする</button></div>',
         '<div class="field-error" data-error="time"></div>') +
       fieldHtml('setterId', '設定者', true,
-        '<div class="setter-box">' + icon('person', 'icon-sm') + (op ? operatorHtml(op) : '（未選択）') + '</div>',
+        '<div class="setter-box">' + icon('person', 'icon-sm') + '<span>' + (op ? operatorHtml(op) : '（未選択）') + '</span></div>',
         '<div class="field-hint">変えるときは、右上の名前のボタンから選び直してください</div>') +
       fieldHtml('product', '生産品種', false,
         '<select class="select" id="in-product"><option value="">（選ばない）</option>' + products.map(function (p) {
@@ -5035,7 +5035,7 @@ function setAdminPasswordForPreview_(password) { PropertiesService.getScriptProp
         '<select class="select" data-ed="setter">' + (r.setterId ? '' : '<option value="">（空）</option>') + setters.map(function (o) {
           return '<option value="' + esc(o.operatorId) + '"' + (o.operatorId === r.setterId ? ' selected' : '') + '>' + esc(operatorOptionText(o) + (o.active ? '' : '（無効）')) + '</option>';
         }).join('') + '</select>' :
-        '<div class="setter-box">' + icon('person', 'icon-sm') + (setterHtml(r) || '—') + '</div>') +
+        '<div class="setter-box">' + icon('person', 'icon-sm') + '<span>' + (setterHtml(r) || '—') + '</span></div>') +
       fieldHtml('product', '生産品種', false, '<select class="select" data-ed="product"><option value="">（選ばない）</option>' + products.map(function (p) {
         return '<option value="' + esc(p.name) + '"' + (p.name === e.product ? ' selected' : '') + '>' + esc(p.name + (p.active ? '' : '（無効）')) + '</option>';
       }).join('') + '</select>') +

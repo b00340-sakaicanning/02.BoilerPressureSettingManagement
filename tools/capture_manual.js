@@ -24,7 +24,7 @@ const findRecord = (cond) => `(function(){ var g = window.__GAS__.fns; g.resetEx
 const HIDE_BANNER = `(function(){ var b = document.querySelector('.preview-banner'); if (b) b.style.display = 'none'; document.body.style.paddingTop = '0'; window.scrollTo(0, 0); })()`;
 
 const SCENES = [
-  ['01_operator.png', '名前を選ぶ', async (b) => { await open(b, 'tab=home&op=none'); }],
+  ['01_operator.png', '設定者を選ぶ', async (b) => { await open(b, 'tab=home&op=none'); }],
   ['02_home.png', 'ホーム', async (b) => { await open(b, 'tab=home&op=U01'); }],
   ['03_input.png', '入力', async (b) => { await open(b, 'tab=input&op=U01'); await b.click('#seg-pattern [data-pattern="2"]'); }],
   ['04_input_warn.png', '基準と違う圧力の注意', async (b) => {
